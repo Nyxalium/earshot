@@ -1,0 +1,166 @@
+@define-color bg #17181B;
+@define-color side #1E2024;
+@define-color line #2D3036;
+@define-color text #ECECEE;
+@define-color dim #8E929B;
+@define-color red #E5484D;
+@define-color selected #2A2D34;
+@define-color system #8EA3FF;
+
+window {
+  background-color: @bg;
+  color: @text;
+}
+
+headerbar {
+  background: @side;
+  border-bottom: 1px solid @line;
+  box-shadow: none;
+  min-height: 38px;
+  padding: 0 6px 0 14px;
+  color: @text;
+}
+headerbar .app-name { font-weight: 600; }
+windowcontrols button {
+  border: none;
+  min-height: 26px;
+  min-width: 28px;
+  padding: 0;
+  color: @dim;
+}
+
+.sidebar {
+  background-color: @side;
+  border-right: 1px solid @line;
+  padding: 10px 8px;
+}
+
+button {
+  background: none;
+  border: 1px solid @line;
+  border-radius: 8px;
+  box-shadow: none;
+  text-shadow: none;
+  color: @text;
+  min-height: 30px;
+  padding: 0 12px;
+  font-weight: 500;
+}
+button:hover { background-color: alpha(@text, 0.06); }
+button:active { background-color: alpha(@text, 0.1); }
+button:disabled { opacity: 0.5; }
+button.record {
+  background-color: @red;
+  border-color: @red;
+  color: white;
+}
+button.record:hover { background-color: shade(@red, 1.08); }
+button.flat,
+menubutton.flat > button {
+  border-color: transparent;
+  color: @dim;
+}
+button.flat:hover,
+menubutton.flat > button:hover { color: @text; }
+button.small {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+button.play {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 17px;
+  background-color: @text;
+  border-color: @text;
+  color: @bg;
+}
+button.play:hover { background-color: white; }
+
+entry {
+  background-color: transparent;
+  border: 1px solid @line;
+  border-radius: 8px;
+  box-shadow: none;
+  outline: none;
+  color: @text;
+  caret-color: @text;
+  min-height: 28px;
+  padding: 0 9px;
+}
+entry:focus-within { border-color: @dim; }
+entry > image { color: @dim; }
+entry > text > placeholder { color: @dim; }
+
+list { background: none; }
+list > row {
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border-radius: 7px;
+  color: @text;
+  outline: none;
+}
+list > row:hover { background-color: alpha(@text, 0.04); }
+list > row:selected { background-color: @selected; }
+.group {
+  font-size: 12px;
+  color: @dim;
+  padding: 9px 8px 2px;
+}
+
+button.live-row {
+  padding: 6px 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background-color: @selected;
+  font-weight: normal;
+}
+.dot {
+  background-color: @red;
+  border-radius: 4px;
+  min-width: 8px;
+  min-height: 8px;
+}
+
+.dim { color: @dim; }
+.small { font-size: 12px; }
+.tnum { font-feature-settings: "tnum"; }
+.system { color: @system; }
+
+.page { padding: 18px 20px; }
+.time {
+  font-size: 40px;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.time.paused { color: @dim; }
+.title {
+  font-size: 19px;
+  font-weight: 600;
+}
+.wave { margin-top: 16px; }
+.wave > box { margin-top: 6px; }
+.transport { margin-top: 2px; }
+
+.banner {
+  background-color: alpha(@red, 0.14);
+  border-bottom: 1px solid alpha(@red, 0.4);
+  padding: 6px 8px 6px 20px;
+}
+
+popover > contents {
+  background-color: @side;
+  border: 1px solid @line;
+  border-radius: 10px;
+  color: @text;
+  padding: 8px;
+}
+popover > arrow {
+  background-color: @side;
+  border: 1px solid @line;
+}
+
+*:focus-visible {
+  outline-color: alpha(@text, 0.45);
+}

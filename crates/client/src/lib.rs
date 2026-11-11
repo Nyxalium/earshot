@@ -11,8 +11,11 @@ use std::time::Duration;
 use zbus::names::WellKnownName;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-pub const BUS_NAME: &str = "io.github.nyxalium.Earshot";
-pub const OBJECT_PATH: &str = "/io/github/nyxalium/Earshot";
+/// The window's application ID. The service uses a name of its own below
+/// it, so both can be on the session bus at once.
+pub const APP_ID: &str = "io.github.nyxalium.Earshot";
+pub const BUS_NAME: &str = "io.github.nyxalium.Earshot.Service";
+pub const OBJECT_PATH: &str = "/io/github/nyxalium/Earshot/Service";
 /// File name of the service binary, looked for next to the calling program
 /// when the service is not installed for D-Bus activation.
 pub const SERVICE_BINARY: &str = "earshotd";
@@ -53,9 +56,9 @@ pub struct RecordingInfo {
 }
 
 #[zbus::proxy(
-    interface = "io.github.nyxalium.Earshot1",
-    default_service = "io.github.nyxalium.Earshot",
-    default_path = "/io/github/nyxalium/Earshot"
+    interface = "io.github.nyxalium.Earshot.Service1",
+    default_service = "io.github.nyxalium.Earshot.Service",
+    default_path = "/io/github/nyxalium/Earshot/Service"
 )]
 pub trait Earshot {
     /// Starts a recording and returns the file it is being written to.
@@ -104,6 +107,35 @@ pub fn clock(ms: u64) -> String {
         format!("{h}:{m:02}:{s:02}")
     } else {
         format!("{m}:{s:02}")
+    }
+}
+
+/// Formats a file size with a decimal unit, such as `21.4 MB`.
+pub fn file_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "kB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// The service's own message for a failed call, without the D-Bus error name
+/// in front of it.
+pub fn error_message(error: &zbus::Error) -> String {
+    match error {
+        zbus::Error::FDO(error) => match &**error {
+            zbus::fdo::Error::Failed(message) => message.clone(),
+            other => other.to_string(),
+        },
+        zbus::Error::Failure(message) => message.clone(),
+        other => other.to_string(),
     }
 }
 

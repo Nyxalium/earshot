@@ -3,7 +3,7 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use earshot_client::{RecordingInfo, StartOptions, Status, clock};
+use earshot_client::{RecordingInfo, StartOptions, Status, clock, error_message, file_size};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -96,21 +96,9 @@ async fn main() -> ExitCode {
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("earshot: {}", error_text(&e));
+            eprintln!("earshot: {}", error_message(&e));
             ExitCode::FAILURE
         }
-    }
-}
-
-/// The service's own message, without the D-Bus error name in front of it.
-fn error_text(error: &zbus::Error) -> String {
-    match error {
-        zbus::Error::FDO(error) => match &**error {
-            zbus::fdo::Error::Failed(message) => message.clone(),
-            other => other.to_string(),
-        },
-        zbus::Error::Failure(message) => message.clone(),
-        other => other.to_string(),
     }
 }
 
@@ -231,7 +219,7 @@ fn print_list(json: bool, recordings: &[RecordingInfo]) {
         println!(
             "{:>8}  {:>9}  {}",
             recording.duration_ms.map_or_else(|| "-".to_owned(), clock),
-            size(recording.size_bytes),
+            file_size(recording.size_bytes),
             file_name(&recording.path),
         );
     }
@@ -247,19 +235,4 @@ fn capitalised(word: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
-}
-
-fn size(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "kB", "MB", "GB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
 }

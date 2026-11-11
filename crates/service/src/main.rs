@@ -16,7 +16,7 @@ struct Service {
     recorder: Arc<Recorder>,
 }
 
-#[interface(name = "io.github.nyxalium.Earshot1")]
+#[interface(name = "io.github.nyxalium.Earshot.Service1")]
 impl Service {
     async fn start(&self, options: StartOptions) -> fdo::Result<String> {
         let recorder = self.recorder.clone();
