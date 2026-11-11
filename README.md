@@ -42,8 +42,10 @@ earshot-app ~/Music/Earshot/"Band practice.opus"   # open with a recording selec
 ```
 
 Recordings are listed on the left. The right side shows the recording in
-progress, or the one you select: its waveform, playback with seeking and
-speed, and Rename and Delete. A recording keeps going if you close the window.
+progress, or the one you select: its waveform, and playback with seeking and
+speed. Right-click a recording in the list (or press the Menu key) to rename it
+or move it to the trash; F2 and Delete do the same for the focused recording.
+A recording keeps going if you close the window.
 
 ## The command
 
