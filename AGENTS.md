@@ -71,3 +71,9 @@ These are explained in [docs/plan.md](docs/plan.md):
   below it.
 - Rename and delete live in the recordings list's right-click menu, not on the
   open recording's page.
+- Colours come only from the theme's palette (`crates/app/src/theme.rs`).
+  `style.css` uses the named colours and never a literal one, so every theme
+  restyles everything. A new theme is one entry in `THEMES`.
+- Settings only the window uses go in `window.toml`, not in `config.toml`. The
+  service refuses config keys it does not know, and a service left running
+  from an older version would refuse new ones.

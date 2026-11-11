@@ -5,6 +5,7 @@ mod backend;
 mod icon;
 mod player;
 mod settings;
+mod theme;
 mod waveform;
 mod window;
 
@@ -39,29 +40,17 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
-/// Earshot has its own look. It starts from GTK's built-in dark theme,
-/// whatever GTK theme the desktop has set, and restyles from there.
+/// Installs Earshot's stylesheet and applies the theme chosen in Settings.
 fn load_style() {
     let Some(display) = gdk::Display::default() else {
         return;
     };
-    if let Some(settings) = gtk::Settings::default() {
-        settings.set_gtk_theme_name(Some("Default"));
-        // GTK 4.20 replaced the dark-theme switch with a colour scheme setting.
-        let scheme = settings
-            .find_property("gtk-interface-color-scheme")
-            .and_then(|property| glib::EnumClass::with_type(property.value_type()))
-            .and_then(|class| class.to_value_by_nick("dark"));
-        match scheme {
-            Some(dark) => settings.set_property_from_value("gtk-interface-color-scheme", &dark),
-            None => settings.set_gtk_application_prefer_dark_theme(true),
-        }
+    theme::install(&display);
+    let theme = theme::saved().unwrap_or_else(|problem| {
+        eprintln!("earshot: {problem}; using the default theme");
+        String::new()
+    });
+    if !theme::apply(&theme) && !theme.is_empty() {
+        eprintln!("earshot: there is no theme named \"{theme}\"; using the default");
     }
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(include_str!("style.css"));
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
 }

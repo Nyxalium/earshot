@@ -41,9 +41,11 @@ earshot-app
 earshot-app ~/Music/Earshot/"Band practice.opus"   # open with a recording selected
 ```
 
-The cog in the title bar (or Ctrl+,) opens Settings: the recordings folder,
-the file format, and the default source. They are saved to the same config
-file described below.
+The cog in the title bar (or Ctrl+,) opens Settings. The General tab has the
+recordings folder, the file format and the default source, saved to the config
+file described below. The Appearance tab has the themes: Calm dark, Plain
+light, Tape and Scope. The chosen theme is saved in
+`~/.config/earshot/window.toml`.
 
 Recordings are listed on the left. The right side shows the recording in
 progress, or the one you select: its waveform, and playback with seeking and
@@ -53,9 +55,9 @@ A recording keeps going if you close the window.
 
 Right-click the waveform to play from that point or copy its timestamp. For a
 recording of both sources, the same menu lets you hear both tracks, only the
-mic or only system audio, and save either track as its own file. Clicking
-**Mic** or **System** beside the waveform also plays just that track; click it
-again to hear both.
+mic or only system audio, and save either track as its own file. The
+button beside the speed shows which tracks you are hearing, and clicking it
+moves to the next choice.
 
 ## The command
 

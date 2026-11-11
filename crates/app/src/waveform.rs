@@ -30,9 +30,6 @@ impl Tracks {
 }
 
 type Rgb = (f64, f64, f64);
-const MICROPHONE: Rgb = (0.925, 0.925, 0.933);
-const SYSTEM: Rgb = (0.557, 0.639, 1.0);
-const PLAYHEAD: Rgb = (0.898, 0.282, 0.302);
 /// Opacity of the part of a recording that has not been played yet.
 const UNPLAYED: f64 = 0.4;
 /// Opacity of a track that is not being heard, relative to the others.
@@ -190,6 +187,9 @@ fn draw(state: &State, cr: &cairo::Context, width: f64, height: f64) -> Result<(
     if bars == 0 {
         return Ok(());
     }
+    let theme = crate::theme::current();
+    let microphone = crate::theme::rgb(theme.microphone);
+    let system = crate::theme::rgb(theme.system);
     let mid = (height / 2.0).round();
     cr.set_line_width(BAR);
     cr.set_line_cap(cairo::LineCap::Round);
@@ -225,11 +225,11 @@ fn draw(state: &State, cr: &cairo::Context, width: f64, height: f64) -> Result<(
         };
         let tracks: &[(Rgb, &[f32], bool, f64, f64, f64)] = match state.tracks {
             Tracks::Both => &[
-                (MICROPHONE, &state.microphone, mic_heard, -gap, -reach, 0.0),
-                (SYSTEM, &state.system, system_heard, gap, 0.0, reach),
+                (microphone, &state.microphone, mic_heard, -gap, -reach, 0.0),
+                (system, &state.system, system_heard, gap, 0.0, reach),
             ],
-            Tracks::Microphone => &[(MICROPHONE, &state.microphone, true, 0.0, -reach, reach)],
-            Tracks::System => &[(SYSTEM, &state.system, true, 0.0, -reach, reach)],
+            Tracks::Microphone => &[(microphone, &state.microphone, true, 0.0, -reach, reach)],
+            Tracks::System => &[(system, &state.system, true, 0.0, -reach, reach)],
         };
         for &((r, g, b), values, heard, offset, up, down) in tracks {
             let alpha = if heard { alpha } else { alpha * MUTED };
@@ -247,7 +247,7 @@ fn draw(state: &State, cr: &cairo::Context, width: f64, height: f64) -> Result<(
     }
 
     if !state.live {
-        let (r, g, b) = PLAYHEAD;
+        let (r, g, b) = crate::theme::rgb(theme.red);
         cr.set_source_rgb(r, g, b);
         cr.set_line_cap(cairo::LineCap::Butt);
         let x = (state.progress * width).clamp(BAR / 2.0, width - BAR / 2.0);

@@ -15,10 +15,17 @@
 - **Storage:** ordinary audio files in `~/Music/Earshot` (changeable). Extra
   data per recording, such as its waveform and later its transcript, is kept in
   a hidden `.earshot` subfolder, so the files stay usable without Earshot.
-- **Window:** GTK4 with Earshot's own stylesheet, not libadwaita. A theme is a
-  CSS file plus visualiser settings. Two panes: recordings on the left, the
-  recording in progress or the selected one on the right, with room under the
-  waveform for its transcript.
+- **Window:** GTK4 with Earshot's own stylesheet, not libadwaita. Two panes
+  without borders: recordings on the window background on the left, and the
+  recording in progress or the selected one on a raised panel on the right,
+  which its waveform fills.
+- **Themes:** a theme is a palette, a few style rules on top of the shared
+  stylesheet, and waveform colours. Themes change colours, fonts and shapes,
+  never the layout. Different layouts (a day timeline, a tape deck with needle
+  meters, and so on) would be separate views.
+- **Transcripts:** once transcription exists, the open recording becomes a
+  document: the waveform shrinks to a scrubber strip and the transcript fills
+  the panel.
 - **Waveform:** the microphone is drawn above the centre line and system audio
   below it.
 - **Failures are states:** a recording that cannot start is an error returned
@@ -46,7 +53,9 @@
       track as a file
 - [ ] Per-track volume (balance between mic and system audio)
 - [ ] Waveform for audio files Earshot did not record
-- [ ] More visualisers (spectrum, level meter) and themes
+- [x] Themes, chosen on the Appearance tab of Settings
+- [ ] Level meters for the recording view
+- [ ] More visualisers (spectrum)
 - [x] Settings window: recordings folder, format, default source
 - [ ] Recording indicator in the system tray, with elapsed time and stop
 - [ ] Global shortcut: a desktop shortcut bound to `earshot toggle`, which

@@ -152,10 +152,9 @@ struct Ui {
     title: gtk::Label,
     meta: gtk::Label,
     wave: Waveform,
-    /// Beside a two-track waveform: click one to hear only that track.
-    track_toggles: gtk::Box,
-    mic_toggle: gtk::Button,
-    system_toggle: gtk::Button,
+    /// Shows which tracks of a two-track recording are heard; clicking it
+    /// moves to the next choice.
+    tracks_chip: gtk::Button,
     /// The waveform's right-click menu.
     wave_menu: gtk::Popover,
     /// The check marks beside Both tracks, Mic only and System only.
@@ -266,7 +265,7 @@ impl Ui {
             .build();
 
         let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        sidebar.add_css_class("sidebar");
+        sidebar.add_css_class("side");
         sidebar.set_size_request(270, -1);
         // The record button inside expands; the sidebar itself must not.
         sidebar.set_hexpand(false);
@@ -309,13 +308,14 @@ impl Ui {
         live_controls.append(&stop);
         live_controls.append(&discard);
 
+        live_controls.add_css_class("bar");
+
         let live_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         live_page.add_css_class("page");
         live_page.append(&time);
         live_page.append(&live_meta);
-        let live_area = wave_area(&live_wave, &live_tracks, 180);
-        live_area.attach(&live_controls, 0, 1, 1, 1);
-        live_page.append(&live_area);
+        live_page.append(&wave_area(&live_wave, Some(&live_tracks)));
+        live_page.append(&live_controls);
 
         // The selected recording.
         let title = label("", &["title"]);
@@ -324,48 +324,39 @@ impl Ui {
 
         let meta = label("", &["dim"]);
         let wave = Waveform::new();
-        let mic_toggle = track_toggle("Mic", "Hear only the mic. Click again for both.");
-        let system_toggle = track_toggle("System", "Hear only system audio. Click again for both.");
-        system_toggle.add_css_class("system");
-        let track_toggles = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .homogeneous(true)
-            .width_request(56)
-            .build();
-        track_toggles.append(&mic_toggle);
-        track_toggles.append(&system_toggle);
-        let position = label("0:00", &["small", "dim", "tnum"]);
-        position.set_hexpand(true);
-        let duration = label("", &["small", "dim", "tnum"]);
-        let times = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        times.append(&position);
-        times.append(&duration);
-
-        let back = gtk::Button::with_label("−10");
-        let forward = gtk::Button::with_label("+10");
+        let position = label("0:00", &["clock"]);
+        let duration = label("", &["dim", "tnum"]);
         let play_icon = IconView::new(Icon::Play);
         let play = gtk::Button::builder().child(play_icon.widget()).build();
         play.add_css_class("play");
+        let back = gtk::Button::with_label("−10");
+        let forward = gtk::Button::with_label("+10");
+        let tracks_chip = gtk::Button::with_label(heard_label(Heard::Both));
+        tracks_chip.set_tooltip_text(Some("Choose which tracks you hear"));
         let speed = gtk::Button::with_label(SPEEDS[0].1);
-        for button in [&back, &forward, &speed] {
-            button.add_css_class("small");
-            button.set_valign(gtk::Align::Center);
+        for chip in [&back, &forward, &tracks_chip, &speed] {
+            chip.add_css_class("chip");
+            chip.set_valign(gtk::Align::Center);
         }
-        let transport = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        transport.add_css_class("transport");
-        transport.append(&back);
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        let transport = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        transport.add_css_class("bar");
         transport.append(&play);
+        transport.append(&position);
+        transport.append(&duration);
+        transport.append(&spacer);
+        transport.append(&back);
         transport.append(&forward);
+        transport.append(&tracks_chip);
         transport.append(&speed);
 
         let playback_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         playback_page.add_css_class("page");
         playback_page.append(&title);
         playback_page.append(&meta);
-        let wave_area = wave_area(&wave, &track_toggles, 150);
-        wave_area.attach(&times, 0, 1, 1, 1);
-        wave_area.attach(&transport, 0, 2, 1, 1);
-        playback_page.append(&wave_area);
+        playback_page.append(&wave_area(&wave, None));
+        playback_page.append(&transport);
 
         let pages = gtk::Stack::builder().vexpand(true).build();
         pages.add_named(&empty, Some("empty"));
@@ -373,6 +364,7 @@ impl Ui {
         pages.add_named(&playback_page, Some("playback"));
 
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        right.add_css_class("panel");
         right.set_hexpand(true);
         right.append(&banner);
         right.append(&pages);
@@ -469,9 +461,7 @@ impl Ui {
             title,
             meta,
             wave,
-            track_toggles,
-            mic_toggle,
-            system_toggle,
+            tracks_chip,
             wave_menu,
             heard_checks,
             two_track_items,
@@ -540,23 +530,6 @@ impl Ui {
                 let model = ui.model.borrow();
                 let name = model.recordings.get(row.index() as usize).map(|r| &r.name);
                 name.is_none_or(|name| name.to_lowercase().contains(&query))
-            }
-        ));
-        ui.list.set_header_func(glib::clone!(
-            #[weak]
-            ui,
-            move |row, before| {
-                let model = ui.model.borrow();
-                let day = |row: &gtk::ListBoxRow| {
-                    let recording = model.recordings.get(row.index() as usize)?;
-                    Some(started(recording.created).0)
-                };
-                let day_of_row = day(row);
-                let starts_group = day_of_row != before.and_then(day);
-                let header = day_of_row
-                    .filter(|_| starts_group)
-                    .map(|day| label(day.label(), &["group"]));
-                row.set_header(header.as_ref());
             }
         ));
         ui.list.connect_row_selected(glib::clone!(
@@ -641,24 +614,17 @@ impl Ui {
                 }
             ));
         }
-        for (heard, toggle) in [
-            (Heard::Microphone, &ui.mic_toggle),
-            (Heard::System, &ui.system_toggle),
-        ] {
-            toggle.connect_clicked(glib::clone!(
-                #[weak]
-                ui,
-                move |_| {
-                    // Clicking the track already heard alone goes back to both.
-                    let current = ui.player.tracks();
-                    ui.hear(if current == Some(heard) {
-                        Heard::Both
-                    } else {
-                        heard
-                    });
-                }
-            ));
-        }
+        ui.tracks_chip.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                ui.hear(match ui.player.tracks() {
+                    Some(Heard::Both) => Heard::Microphone,
+                    Some(Heard::Microphone) => Heard::System,
+                    _ => Heard::Both,
+                });
+            }
+        ));
 
         // Right-click, the Menu key or Shift+F10 opens a recording's menu;
         // F2 and Delete go straight to renaming and trashing it.
@@ -982,7 +948,7 @@ impl Ui {
     }
 
     fn populate(self: &Rc<Self>, recordings: Vec<RecordingInfo>) {
-        let rows: Vec<gtk::Grid> = recordings.iter().map(row).collect();
+        let rows: Vec<gtk::Box> = recordings.iter().map(row).collect();
         let wanted = {
             let mut model = self.model.borrow_mut();
             model.recordings = recordings;
@@ -1110,15 +1076,14 @@ impl Ui {
         self.title.set_text(&recording.name);
         self.meta.set_text(&details(&recording));
         self.position.set_text("0:00");
-        self.duration
-            .set_text(&recording.duration_ms.map(clock).unwrap_or_default());
+        self.show_duration(recording.duration_ms);
         self.speed.set_label(SPEEDS[0].1);
         self.play_icon.set(Icon::Play);
 
         let tracks = Tracks::from_source(recording.source.as_deref());
         self.wave.show(tracks, Vec::new(), Vec::new());
         let two_tracks = tracks == Tracks::Both;
-        self.track_toggles.set_visible(two_tracks);
+        self.tracks_chip.set_visible(two_tracks);
         self.two_track_items.set_visible(two_tracks);
         if let Err(message) = self.player.load(Path::new(&recording.path), two_tracks) {
             self.error(&message);
@@ -1160,9 +1125,15 @@ impl Ui {
         let found = self.player.duration_ms().unwrap_or(0);
         if found > 0 {
             self.model.borrow_mut().duration_ms = found;
-            self.duration.set_text(&clock(found));
+            self.show_duration(Some(found));
         }
         found
+    }
+
+    /// Shows the open recording's length after its position, once known.
+    fn show_duration(&self, duration_ms: Option<u64>) {
+        let text = duration_ms.map(|ms| format!("/ {}", clock(ms)));
+        self.duration.set_text(&text.unwrap_or_default());
     }
 
     fn show_position(&self, position_ms: u64) {
@@ -1293,16 +1264,7 @@ impl Ui {
         for (option, check) in &self.heard_checks {
             check.set_text(if *option == heard { "✓" } else { "" });
         }
-        for (track, toggle) in [
-            (Heard::Microphone, &self.mic_toggle),
-            (Heard::System, &self.system_toggle),
-        ] {
-            if heard == Heard::Both || heard == track {
-                toggle.remove_css_class("muted");
-            } else {
-                toggle.add_css_class("muted");
-            }
-        }
+        self.tracks_chip.set_label(heard_label(heard));
     }
 
     /// Asks where to save one track of the open recording, then saves it in
@@ -1410,14 +1372,12 @@ fn check_item(text: &str) -> (gtk::Button, gtk::Label) {
     (button, check)
 }
 
-/// A track name beside the waveform that can be clicked to hear only it.
-fn track_toggle(text: &str, tooltip: &str) -> gtk::Button {
-    let button = gtk::Button::builder()
-        .child(&label(text, &[]))
-        .tooltip_text(tooltip)
-        .build();
-    button.add_css_class("track-toggle");
-    button
+fn heard_label(heard: Heard) -> &'static str {
+    match heard {
+        Heard::Both => "Both tracks",
+        Heard::Microphone => "Mic only",
+        Heard::System => "System only",
+    }
 }
 
 fn menu_item(text: &str) -> gtk::Button {
@@ -1446,37 +1406,34 @@ fn track_labels() -> gtk::Box {
     labels
 }
 
-/// A waveform with its track names beside it. Rows attached below it, in
-/// column 0, line up with the waveform and not with the names.
-fn wave_area(wave: &Waveform, tracks: &impl IsA<gtk::Widget>, height: i32) -> gtk::Grid {
-    let area = gtk::Grid::builder().column_spacing(10).build();
+/// A waveform that fills the space it is given, with track names beside it
+/// if there are any.
+fn wave_area(wave: &Waveform, tracks: Option<&gtk::Box>) -> gtk::Box {
+    let area = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     area.add_css_class("wave");
-    wave.widget().set_height_request(height);
-    area.attach(wave.widget(), 0, 0, 1, 1);
-    area.attach(tracks, 1, 0, 1, 1);
+    area.set_vexpand(true);
+    wave.widget().set_vexpand(true);
+    wave.widget().set_height_request(96);
+    area.append(wave.widget());
+    if let Some(tracks) = tracks {
+        area.append(tracks);
+    }
     area
 }
 
 /// One recording in the list.
-fn row(recording: &RecordingInfo) -> gtk::Grid {
-    let name = label(&recording.name, &[]);
-    name.set_hexpand(true);
+fn row(recording: &RecordingInfo) -> gtk::Box {
+    let name = label(&recording.name, &["name"]);
     name.set_ellipsize(pango::EllipsizeMode::End);
-    let duration = label(
-        &recording.duration_ms.map(clock).unwrap_or_default(),
-        &["dim", "tnum"],
-    );
-    let source = source_label(recording.source.as_deref());
-    let mut details = started(recording.created).1;
-    if !source.is_empty() {
-        details = format!("{details} · {source}");
+    let mut details = started(recording.created, false);
+    if let Some(duration) = recording.duration_ms {
+        details = format!("{details} · {}", clock(duration));
     }
 
-    let grid = gtk::Grid::builder().column_spacing(8).build();
-    grid.attach(&name, 0, 0, 1, 1);
-    grid.attach(&duration, 1, 0, 1, 1);
-    grid.attach(&label(&details, &["small", "dim"]), 0, 1, 2, 1);
-    grid
+    let row = gtk::Box::new(gtk::Orientation::Vertical, 1);
+    row.append(&name);
+    row.append(&label(&details, &["small", "dim", "tnum"]));
+    row
 }
 
 fn source_label(source: Option<&str>) -> &'static str {
@@ -1488,62 +1445,30 @@ fn source_label(source: Option<&str>) -> &'static str {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Day {
-    Today,
-    Yesterday,
-    Earlier,
-}
-
-impl Day {
-    fn label(self) -> &'static str {
-        match self {
-            Day::Today => "Today",
-            Day::Yesterday => "Yesterday",
-            Day::Earlier => "Earlier",
-        }
-    }
-}
-
-/// Which group of the list a recording belongs to, and how its start time
-/// reads within that group.
-fn started(created: u64) -> (Day, String) {
+/// When a recording started: "Today 11:20", "Yesterday 14:05", or the date
+/// for anything older, with the time too if `time_of_older` is set.
+fn started(created: u64, time_of_older: bool) -> String {
     let (Ok(now), Ok(then)) = (
         glib::DateTime::now_local(),
         glib::DateTime::from_unix_local(created as i64),
     ) else {
-        return (Day::Earlier, String::new());
+        return String::new();
     };
-    let day = if then.ymd() == now.ymd() {
-        Day::Today
+    let format = if then.ymd() == now.ymd() {
+        "Today %H:%M"
     } else if now.add_days(-1).is_ok_and(|d| d.ymd() == then.ymd()) {
-        Day::Yesterday
+        "Yesterday %H:%M"
+    } else if time_of_older {
+        "%a %-d %b %H:%M"
     } else {
-        Day::Earlier
-    };
-    let format = if day == Day::Earlier {
         "%a %-d %b"
-    } else {
-        "%H:%M"
     };
-    let text = then.format(format).map(String::from).unwrap_or_default();
-    (day, text)
+    then.format(format).map(String::from).unwrap_or_default()
 }
 
 /// The line under an open recording's name.
 fn details(recording: &RecordingInfo) -> String {
-    let (day, started) = started(recording.created);
-    let when = match day {
-        Day::Earlier => glib::DateTime::from_unix_local(recording.created as i64)
-            .and_then(|then| then.format("%a %-d %b %H:%M"))
-            .map(String::from)
-            .unwrap_or(started),
-        _ => format!("{} {started}", day.label()),
-    };
-    let mut parts = vec![when];
-    if let Some(duration) = recording.duration_ms {
-        parts.push(clock(duration));
-    }
+    let mut parts = vec![started(recording.created, true)];
     let source = source_label(recording.source.as_deref());
     if !source.is_empty() {
         parts.push(source.to_owned());

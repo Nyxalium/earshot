@@ -1,11 +1,5 @@
-@define-color bg #17181B;
-@define-color side #1E2024;
-@define-color line #2D3036;
-@define-color text #ECECEE;
-@define-color dim #8E929B;
-@define-color red #E5484D;
-@define-color selected #2A2D34;
-@define-color system #8EA3FF;
+/* The shared stylesheet. Colours come from the theme, which defines
+   bg, panel, raised, line, text, dim, red and system before this file. */
 
 window {
   background-color: @bg;
@@ -13,31 +7,32 @@ window {
 }
 
 headerbar {
-  background: @side;
-  border-bottom: 1px solid @line;
+  background: @bg;
+  border: none;
   box-shadow: none;
-  min-height: 38px;
-  padding: 0 6px 0 14px;
+  min-height: 40px;
+  padding: 0 6px 0 16px;
   color: @text;
 }
 headerbar .app-name { font-weight: 600; }
-windowcontrols button {
-  border: none;
+windowcontrols button,
+headerbar button.settings-button {
+  background: none;
+  border-color: transparent;
   min-height: 26px;
   min-width: 28px;
   padding: 0;
   color: @dim;
 }
+windowcontrols button:hover,
+headerbar button.settings-button:hover { color: @text; }
 
-.sidebar {
-  background-color: @side;
-  border-right: 1px solid @line;
-  padding: 10px 8px;
-}
+.side { padding: 4px 8px 10px 10px; }
 
 button {
-  background: none;
-  border: 1px solid @line;
+  background-image: none;
+  background-color: @raised;
+  border: 1px solid transparent;
   border-radius: 8px;
   box-shadow: none;
   text-shadow: none;
@@ -46,75 +41,69 @@ button {
   padding: 0 12px;
   font-weight: 500;
 }
-button:hover { background-color: alpha(@text, 0.06); }
-button:active { background-color: alpha(@text, 0.1); }
+button:hover { background-color: mix(@raised, @text, 0.08); }
+button:active { background-color: mix(@raised, @text, 0.14); }
 button:disabled { opacity: 0.5; }
 button.record {
   background-color: @red;
-  border-color: @red;
   color: white;
 }
 button.record:hover { background-color: shade(@red, 1.08); }
-button.flat,
-menubutton.flat > button {
-  border-color: transparent;
+button.flat {
+  background-color: transparent;
   color: @dim;
 }
-button.flat:hover,
-menubutton.flat > button:hover { color: @text; }
-button.small {
+button.flat:hover { color: @text; }
+button.chip {
   min-height: 26px;
-  padding: 0 8px;
+  padding: 0 9px;
+  border-radius: 7px;
   font-size: 12px;
+  font-weight: normal;
+  color: @dim;
 }
+button.chip:hover { color: @text; }
 button.play {
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
-  border-radius: 17px;
+  border-radius: 23px;
   background-color: @text;
-  border-color: @text;
-  color: @bg;
+  color: @panel;
 }
-button.play:hover { background-color: white; }
+button.play:hover { background-color: mix(@text, @panel, 0.15); }
 
 entry {
-  background-color: transparent;
-  border: 1px solid @line;
+  background-color: @raised;
+  border: 1px solid transparent;
   border-radius: 8px;
   box-shadow: none;
   outline: none;
   color: @text;
   caret-color: @text;
-  min-height: 28px;
+  min-height: 30px;
   padding: 0 9px;
 }
-entry:focus-within { border-color: @dim; }
+entry:focus-within { border-color: @line; }
 entry > image { color: @dim; }
 entry > text > placeholder { color: @dim; }
 
 list { background: none; }
 list > row {
-  padding: 6px 8px;
+  padding: 8px;
   margin-bottom: 2px;
-  border-radius: 7px;
+  border-radius: 8px;
   color: @text;
   outline: none;
 }
 list > row:hover { background-color: alpha(@text, 0.04); }
-list > row:selected { background-color: @selected; }
+list > row:selected { background-color: @raised; }
 list > row.menu-target { box-shadow: inset 0 0 0 1px @line; }
-.group {
-  font-size: 12px;
-  color: @dim;
-  padding: 9px 8px 2px;
-}
+.name { font-size: 14px; }
 
 button.live-row {
-  padding: 6px 8px;
-  border-color: transparent;
-  border-radius: 7px;
-  background-color: @selected;
+  padding: 8px;
+  background-color: @raised;
   font-weight: normal;
 }
 .dot {
@@ -129,73 +118,65 @@ button.live-row {
 .tnum { font-feature-settings: "tnum"; }
 .system { color: @system; }
 
-.page { padding: 18px 20px; }
+/* The raised panel on the right. */
+.panel {
+  background-color: @panel;
+  border-radius: 12px;
+  margin: 0 8px 8px 0;
+}
+.page { padding: 18px 22px; }
+.title {
+  font-size: 17px;
+  font-weight: 600;
+}
 .time {
   font-size: 40px;
   font-weight: 600;
   font-feature-settings: "tnum";
 }
 .time.paused { color: @dim; }
-.title {
-  font-size: 19px;
+.clock {
+  font-size: 26px;
   font-weight: 600;
+  font-feature-settings: "tnum";
+  margin-left: 6px;
 }
-.wave { margin-top: 16px; }
-.wave > box { margin-top: 6px; }
-.transport { margin-top: 2px; }
+.wave { margin: 18px 0 14px; }
 
 .banner {
   background-color: alpha(@red, 0.14);
-  border-bottom: 1px solid alpha(@red, 0.4);
-  padding: 6px 8px 6px 20px;
+  border-radius: 12px 12px 0 0;
+  padding: 6px 8px 6px 22px;
 }
+.banner.notice { background-color: @raised; }
 
 popover > contents {
-  background-color: @side;
+  background-color: @panel;
   border: 1px solid @line;
   border-radius: 10px;
   color: @text;
   padding: 8px;
 }
 popover > arrow {
-  background-color: @side;
+  background-color: @panel;
   border: 1px solid @line;
 }
-
-*:focus-visible {
-  outline-color: alpha(@text, 0.45);
-}
-
 popover.row-menu > contents { padding: 4px; }
+popover.row-menu box.horizontal { margin: 2px; }
+popover.row-menu separator {
+  margin: 4px 6px;
+  background-color: @line;
+}
 button.menu-item {
-  border-color: transparent;
+  background-color: transparent;
   border-radius: 6px;
   min-height: 30px;
   min-width: 150px;
   padding: 0 10px;
   font-weight: normal;
 }
+button.menu-item:hover { background-color: alpha(@text, 0.08); }
 button.menu-item.destructive { color: @red; }
-popover.row-menu entry { min-height: 30px; }
-popover.row-menu box.horizontal { margin: 2px; }
-
-headerbar button.settings-button {
-  border-color: transparent;
-  color: @dim;
-  min-width: 28px;
-  min-height: 26px;
-  padding: 0;
-}
-headerbar button.settings-button:hover { color: @text; }
-
-.settings { padding: 8px 20px 20px; }
-.setting { margin-top: 16px; }
-.heading { font-weight: 600; }
-.problem {
-  color: @red;
-  margin-top: 12px;
-}
-.settings dropdown > button { min-width: 140px; }
 
 popover listview { background: none; }
 popover listview > row {
@@ -207,26 +188,33 @@ popover listview > row {
 popover listview > row:hover,
 popover listview > row:selected { background-color: alpha(@text, 0.08); }
 
-/* Track names beside a two-track waveform, clickable to hear one track. */
-button.track-toggle {
-  border-color: transparent;
-  background: none;
-  padding: 0 4px;
-  min-height: 24px;
-  font-size: 12px;
+*:focus-visible { outline-color: alpha(@text, 0.45); }
+
+/* Settings */
+stackswitcher button {
+  background-color: transparent;
+  min-height: 28px;
+  padding: 0 12px;
   font-weight: normal;
   color: @dim;
 }
-button.track-toggle.system { color: @system; }
-button.track-toggle:hover { background-color: alpha(@text, 0.06); }
-button.track-toggle.muted { opacity: 0.35; }
-
-popover.row-menu separator {
-  margin: 4px 6px;
-  background-color: @line;
+stackswitcher button:checked {
+  background-color: @raised;
+  color: @text;
 }
-
-.banner.notice {
-  background-color: alpha(@text, 0.06);
-  border-bottom-color: @line;
+.settings { padding: 8px 20px 20px; }
+.setting { margin-top: 16px; }
+.heading { font-weight: 600; }
+.problem {
+  color: @red;
+  margin-top: 12px;
 }
+.settings dropdown > button { min-width: 140px; }
+button.theme-card {
+  background-color: transparent;
+  border-radius: 10px;
+  padding: 8px;
+  font-weight: normal;
+}
+button.theme-card:hover { background-color: @raised; }
+button.theme-card.selected { border-color: @text; }

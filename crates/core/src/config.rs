@@ -60,20 +60,28 @@ impl Config {
     /// Writes the whole config to a temporary file and moves it into place,
     /// so a crash mid-write never leaves a half-written config behind.
     pub fn save_to(&self, path: &Path) -> Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)
-                .map_err(Error::io(format!("could not create {}", dir.display())))?;
-        }
         let text = toml::to_string(self)
             .map_err(|e| Error::Invalid(format!("could not write the config: {e}")))?;
-        let temporary = path.with_extension("toml.tmp");
-        std::fs::write(&temporary, text).map_err(Error::io(format!(
-            "could not write {}",
-            temporary.display()
-        )))?;
-        std::fs::rename(&temporary, path)
-            .map_err(Error::io(format!("could not replace {}", path.display())))
+        write_whole(path, &text)
     }
+}
+
+/// Replaces a settings file in one step, creating its folder if needed: the
+/// text goes to a temporary file that is then moved into place.
+pub fn write_whole(path: &Path, text: &str) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(Error::io(format!("could not create {}", dir.display())))?;
+    }
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    let temporary = PathBuf::from(temporary);
+    std::fs::write(&temporary, text).map_err(Error::io(format!(
+        "could not write {}",
+        temporary.display()
+    )))?;
+    std::fs::rename(&temporary, path)
+        .map_err(Error::io(format!("could not replace {}", path.display())))
 }
 
 #[cfg(test)]

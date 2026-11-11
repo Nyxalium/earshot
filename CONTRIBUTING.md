@@ -98,6 +98,7 @@ From [docs/plan.md](docs/plan.md):
 - choosing the input and output device
 - waveforms for audio files Earshot did not record
 - packaging: a D-Bus service file, a desktop file, an AUR package, a Flatpak
+- a new theme: one entry in `crates/app/src/theme.rs`
 
 Bug reports are just as valuable. Say which desktop, audio setup and version
 you're on, what you did, and what happened. The output of `earshot status`

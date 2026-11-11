@@ -181,7 +181,9 @@ dependencies = [
  "futures-util",
  "gstreamer",
  "gtk4",
+ "serde",
  "tokio",
+ "toml",
  "zbus",
 ]
 
