@@ -150,7 +150,16 @@ impl Waveform {
     }
 
     pub fn set_progress(&self, progress: f64) {
-        self.state.borrow_mut().progress = progress.clamp(0.0, 1.0);
+        let progress = progress.clamp(0.0, 1.0);
+        // The position is reported every frame while playing. Over a long
+        // recording the playhead moves far less than a pixel in that time,
+        // so the waveform is only redrawn once the move would show.
+        let pixels = f64::from(self.area.width() * self.area.scale_factor());
+        let moved = (progress - self.state.borrow().progress).abs() * pixels;
+        if pixels > 0.0 && moved < 0.5 {
+            return;
+        }
+        self.state.borrow_mut().progress = progress;
         self.area.queue_draw();
     }
 
