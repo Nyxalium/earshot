@@ -790,7 +790,27 @@ impl Ui {
             }
             Event::Failed(message) => self.error(&format!("Recording failed: {message}")),
             Event::RecordingsChanged => self.reload(),
+            Event::ServiceStopped => self.service_stopped(),
         }
+    }
+
+    /// The service has gone. A recording it was making ended there, so the
+    /// window stops showing one. Whatever is asked of the service next
+    /// starts it again.
+    fn service_stopped(self: &Rc<Self>) {
+        let state = self.model.borrow().state.clone();
+        if state != "recording" && state != "paused" {
+            return;
+        }
+        self.apply_status(Status {
+            state: "idle".to_owned(),
+            elapsed_ms: 0,
+            path: None,
+            source: None,
+        });
+        self.error("The Earshot service stopped, so the recording ended early");
+        // What it had written is still in the recordings folder.
+        self.reload();
     }
 
     /// Settings were saved: show the new default source, and the list of the

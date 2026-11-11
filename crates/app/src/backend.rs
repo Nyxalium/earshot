@@ -20,6 +20,8 @@ pub enum Event {
     },
     Failed(String),
     RecordingsChanged,
+    /// The service is no longer on the session bus.
+    ServiceStopped,
 }
 
 #[derive(Clone)]
@@ -69,7 +71,11 @@ impl Backend {
     {
         let proxy = self.proxy.clone();
         self.runtime
-            .spawn(async move { call(proxy).await })
+            .spawn(async move {
+                // The service may have stopped since the last call.
+                earshot_client::ensure_running(proxy.inner().connection()).await?;
+                call(proxy).await
+            })
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| earshot_client::error_message(&e))
@@ -84,8 +90,11 @@ async fn forward(
     let mut level = proxy.receive_level().await?;
     let mut failed = proxy.receive_recording_failed().await?;
     let mut changed = proxy.receive_recordings_changed().await?;
+    let mut owners = proxy.inner().receive_owner_changed().await?;
     loop {
         let event = tokio::select! {
+            // In order, so what the service said last is seen before its going.
+            biased;
             Some(signal) = state.next() => Event::State(signal.args()?.status),
             Some(signal) = level.next() => {
                 let args = signal.args()?;
@@ -97,6 +106,11 @@ async fn forward(
             }
             Some(signal) = failed.next() => Event::Failed(signal.args()?.message.to_owned()),
             Some(_) = changed.next() => Event::RecordingsChanged,
+            Some(owner) = owners.next() => match owner {
+                None => Event::ServiceStopped,
+                // Running again; its signals say what it is doing.
+                Some(_) => continue,
+            },
             else => return Ok(()),
         };
         if events.send(event).is_err() {

@@ -146,7 +146,8 @@ pub async fn connect() -> zbus::Result<EarshotProxy<'static>> {
     EarshotProxy::new(&connection).await
 }
 
-async fn ensure_running(connection: &zbus::Connection) -> zbus::Result<()> {
+/// Starts the Earshot service if it is not running.
+pub async fn ensure_running(connection: &zbus::Connection) -> zbus::Result<()> {
     let bus = zbus::fdo::DBusProxy::new(connection).await?;
     let name = WellKnownName::from_static_str(BUS_NAME)?;
     if bus.name_has_owner(name.clone().into()).await? {
@@ -181,11 +182,12 @@ async fn ensure_running(connection: &zbus::Connection) -> zbus::Result<()> {
         .spawn()
         .map_err(|e| zbus::Error::Failure(format!("could not run {}: {e}", binary.display())))?;
 
-    for _ in 0..50 {
+    // It is usually there within a few milliseconds; wait up to five seconds.
+    for _ in 0..500 {
         if bus.name_has_owner(name.clone().into()).await? {
             return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
     Err(zbus::Error::Failure(format!(
         "{} was started but did not appear on the session bus",
