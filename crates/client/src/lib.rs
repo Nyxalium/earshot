@@ -74,13 +74,19 @@ pub trait Earshot {
     fn rename(&self, recording: &str, new_name: &str) -> zbus::Result<String>;
     /// Moves a recording, given its path or file name, to the trash.
     fn delete(&self, recording: &str) -> zbus::Result<()>;
+    /// Loudness over time of a saved recording's microphone and system audio,
+    /// each value from 0 to 1, for drawing its waveform. A source that was not
+    /// recorded, or a file Earshot did not record, gives an empty list.
+    fn waveform(&self, recording: &str) -> zbus::Result<(Vec<f64>, Vec<f64>)>;
 
     /// A recording started, paused, resumed or ended.
     #[zbus(signal)]
     fn state_changed(&self, status: Status) -> zbus::Result<()>;
-    /// Input loudness from 0 to 1, sent about 20 times a second while recording.
+    /// Loudness of the microphone and of system audio, each from 0 to 1, and
+    /// the length recorded so far. Sent about 20 times a second while
+    /// recording; a source that is not being recorded stays at 0.
     #[zbus(signal)]
-    fn level(&self, peak: f64) -> zbus::Result<()>;
+    fn level(&self, microphone: f64, system: f64, elapsed_ms: u64) -> zbus::Result<()>;
     /// A recording ended because of an error. `path` is empty if no audio
     /// could be saved.
     #[zbus(signal)]
@@ -88,6 +94,17 @@ pub trait Earshot {
     /// The set of saved recordings changed.
     #[zbus(signal)]
     fn recordings_changed(&self) -> zbus::Result<()>;
+}
+
+/// Formats a duration as `m:ss`, or `h:mm:ss` from an hour up.
+pub fn clock(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 /// Connects to the Earshot service, starting it if it is not running.

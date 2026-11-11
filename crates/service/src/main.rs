@@ -116,11 +116,27 @@ impl Service {
         Ok(())
     }
 
+    async fn waveform(&self, recording: String) -> fdo::Result<(Vec<f64>, Vec<f64>)> {
+        blocking(move || {
+            let library = library()?;
+            let path = library.resolve(Path::new(&recording))?;
+            let meta = library.meta(&path)?.unwrap_or_default();
+            let widen = |peaks: Vec<f32>| peaks.into_iter().map(f64::from).collect();
+            Ok((widen(meta.microphone_peaks), widen(meta.system_peaks)))
+        })
+        .await
+    }
+
     #[zbus(signal)]
     async fn state_changed(emitter: &SignalEmitter<'_>, status: Status) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn level(emitter: &SignalEmitter<'_>, peak: f64) -> zbus::Result<()>;
+    async fn level(
+        emitter: &SignalEmitter<'_>,
+        microphone: f64,
+        system: f64,
+        elapsed_ms: u64,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn recording_failed(
@@ -191,8 +207,13 @@ async fn forward(
     recorder: &Arc<Recorder>,
     event: Event,
 ) {
-    if let Event::Level(peak) = event {
-        report(Service::level(emitter, peak.into()).await);
+    if let Event::Level {
+        microphone,
+        system,
+        elapsed_ms,
+    } = event
+    {
+        report(Service::level(emitter, microphone.into(), system.into(), elapsed_ms).await);
         return;
     }
 

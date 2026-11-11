@@ -20,8 +20,11 @@ pub struct Meta {
     pub created: u64,
     pub duration_ms: u64,
     pub source: Option<Source>,
-    /// Loudness over time, each value from 0 to 1, for drawing a waveform.
-    pub peaks: Vec<f32>,
+    /// Loudness of the microphone over time, each value from 0 to 1, for
+    /// drawing a waveform. Empty if the microphone was not recorded.
+    pub microphone_peaks: Vec<f32>,
+    /// The same for system audio.
+    pub system_peaks: Vec<f32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -269,7 +272,8 @@ mod tests {
             created,
             duration_ms: 1500,
             source: Some(Source::Both),
-            peaks: vec![0.25, 0.5],
+            microphone_peaks: vec![0.25, 0.5],
+            system_peaks: vec![0.75],
         }
     }
 

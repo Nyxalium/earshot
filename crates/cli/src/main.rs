@@ -3,7 +3,7 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use earshot_client::{RecordingInfo, StartOptions, Status};
+use earshot_client::{RecordingInfo, StartOptions, Status, clock};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -247,17 +247,6 @@ fn capitalised(word: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
-}
-
-/// Formats a duration as `m:ss`, or `h:mm:ss` from an hour up.
-fn clock(ms: u64) -> String {
-    let seconds = ms / 1000;
-    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-    if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
-    } else {
-        format!("{m}:{s:02}")
-    }
 }
 
 fn size(bytes: u64) -> String {

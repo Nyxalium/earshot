@@ -25,9 +25,38 @@ const STATE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Number of peaks kept per recording for drawing its waveform.
 const STORED_PEAKS: usize = 2000;
 
-const MICROPHONE: &str = "pulsesrc client-name=Earshot";
-const SYSTEM: &str = "pulsesrc client-name=Earshot device=@DEFAULT_MONITOR@";
 const CONVERT: &str = "audioconvert ! audioresample";
+
+/// GStreamer descriptions of the two audio inputs.
+struct Inputs<'a> {
+    microphone: &'a str,
+    system: &'a str,
+}
+
+const DEVICES: Inputs<'static> = Inputs {
+    microphone: "pulsesrc client-name=Earshot",
+    system: "pulsesrc client-name=Earshot device=@DEFAULT_MONITOR@",
+};
+
+// Recording both sources keeps them as two tracks inside one ordinary file: a
+// four-channel stream with the microphone on the front pair and system audio
+// on the back pair. Any player plays that as a mix, and the two stay separable.
+const FRONT_PAIR: &str =
+    "<<(float)1,(float)0>,<(float)0,(float)1>,<(float)0,(float)0>,<(float)0,(float)0>>";
+const BACK_PAIR: &str =
+    "<<(float)0,(float)0>,<(float)0,(float)0>,<(float)1,(float)0>,<(float)0,(float)1>>";
+
+/// The four-channel layout both pairs are mixed into. It is stated again
+/// after the mixer, which would otherwise mix everything down to mono.
+const FOUR_CHANNELS: &str = "audio/x-raw,rate=48000,channels=4,channel-mask=(bitmask)0x33";
+
+/// Converts a source to stereo and places it on one pair of four channels.
+fn on_pair(matrix: &str) -> String {
+    format!(
+        "audioconvert ! audio/x-raw,channels=2 ! audioresample ! \
+         audioconvert mix-matrix=\"{matrix}\" ! {FOUR_CHANNELS}"
+    )
+}
 
 named_enum! {
     /// Where the audio comes from.
@@ -100,8 +129,14 @@ pub enum Event {
         message: String,
         path: Option<PathBuf>,
     },
-    /// Current input loudness from 0 to 1, sent while recording.
-    Level(f32),
+    /// Loudness of each source from 0 to 1 and the length recorded so far,
+    /// sent about 20 times a second while recording. A source that is not
+    /// being recorded stays at 0.
+    Level {
+        microphone: f32,
+        system: f32,
+        elapsed_ms: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +151,13 @@ pub struct Recorder {
     shared: Arc<Shared>,
 }
 
+/// Loudness over time of each source being recorded.
+#[derive(Default)]
+struct Peaks {
+    microphone: Vec<f32>,
+    system: Vec<f32>,
+}
+
 struct Shared {
     active: Mutex<Option<Active>>,
     on_event: Box<dyn Fn(Event) + Send + Sync>,
@@ -128,7 +170,7 @@ struct Active {
     source: Source,
     created: u64,
     paused: bool,
-    peaks: Arc<Mutex<Vec<f32>>>,
+    peaks: Arc<Mutex<Peaks>>,
     /// Tells the watcher thread to exit.
     done: Arc<AtomicBool>,
     /// Receives how the pipeline ended: cleanly, or with an error message.
@@ -175,18 +217,11 @@ impl Recorder {
 
     /// Starts a recording and returns the file it is being written to.
     pub fn start(&self, options: StartOptions) -> Result<PathBuf> {
-        let sources = match options.source {
-            Source::Microphone => MICROPHONE.to_owned(),
-            Source::System => SYSTEM.to_owned(),
-            Source::Both => format!(
-                "audiomixer name=mix  {MICROPHONE} ! {CONVERT} ! mix.  {SYSTEM} ! {CONVERT} ! mix.  mix."
-            ),
-        };
-        self.start_from(&sources, options)
+        self.start_from(&DEVICES, options)
     }
 
     /// Starts a recording from the given GStreamer source description.
-    fn start_from(&self, sources: &str, options: StartOptions) -> Result<PathBuf> {
+    fn start_from(&self, inputs: &Inputs, options: StartOptions) -> Result<PathBuf> {
         let mut guard = self.shared.lock();
         if guard.is_some() {
             return Err(Error::AlreadyRecording);
@@ -204,6 +239,18 @@ impl Recorder {
         })?;
         let path = new_recording_path(&options.dir, options.format)?;
 
+        let source = options.source;
+        let Inputs { microphone, system } = inputs;
+        let sources = match source {
+            Source::Microphone => microphone.to_string(),
+            Source::System => system.to_string(),
+            Source::Both => format!(
+                "audiomixer name=mix  {microphone} ! {} ! mix.  {system} ! {} ! mix.  \
+                 mix. ! {FOUR_CHANNELS}",
+                on_pair(FRONT_PAIR),
+                on_pair(BACK_PAIR),
+            ),
+        };
         let description = format!(
             "{sources} ! {CONVERT} ! level name=level interval={} ! {} ! filesink name=sink",
             LEVEL_INTERVAL.as_nanos(),
@@ -236,7 +283,7 @@ impl Recorder {
             return Err(Error::Start(message));
         }
 
-        let peaks = Arc::new(Mutex::new(Vec::new()));
+        let peaks = Arc::new(Mutex::new(Peaks::default()));
         let done = Arc::new(AtomicBool::new(false));
         let (ended_tx, ended) = mpsc::sync_channel(1);
         std::thread::Builder::new()
@@ -244,7 +291,7 @@ impl Recorder {
             .spawn({
                 let (shared, pipeline) = (self.shared.clone(), pipeline.clone());
                 let (peaks, done) = (peaks.clone(), done.clone());
-                move || watch(&shared, &pipeline, &bus, &peaks, &done, &ended_tx)
+                move || watch(&shared, &pipeline, &bus, source, &peaks, &done, &ended_tx)
             })
             .map_err(|e| Error::Start(format!("could not start the recorder thread: {e}")))?;
 
@@ -252,7 +299,7 @@ impl Recorder {
             pipeline,
             path: path.clone(),
             dir: options.dir,
-            source: options.source,
+            source,
             created: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
@@ -349,7 +396,8 @@ impl Shared {
         active.done.store(true, Ordering::Relaxed);
         let peaks = std::mem::take(&mut *active.peaks.lock().unwrap_or_else(|e| e.into_inner()));
         let duration_ms = active.pipeline.query_position::<gst::ClockTime>().map_or(
-            peaks.len() as u64 * LEVEL_INTERVAL.as_millis() as u64,
+            peaks.microphone.len().max(peaks.system.len()) as u64
+                * LEVEL_INTERVAL.as_millis() as u64,
             |t| t.mseconds(),
         );
         let _ = active.pipeline.set_state(gst::State::Null);
@@ -360,7 +408,8 @@ impl Shared {
                 created: active.created,
                 duration_ms,
                 source: Some(active.source),
-                peaks: downsample_peaks(&peaks, STORED_PEAKS),
+                microphone_peaks: downsample_peaks(&peaks.microphone, STORED_PEAKS),
+                system_peaks: downsample_peaks(&peaks.system, STORED_PEAKS),
             };
             // The audio is safe; losing its metadata only costs the waveform.
             if let Err(e) = Library::new(&active.dir).write_meta(&active.path, &meta) {
@@ -411,7 +460,8 @@ fn watch(
     shared: &Shared,
     pipeline: &gst::Pipeline,
     bus: &gst::Bus,
-    peaks: &Mutex<Vec<f32>>,
+    source: Source,
+    peaks: &Mutex<Peaks>,
     done: &AtomicBool,
     ended: &mpsc::SyncSender<std::result::Result<(), String>>,
 ) {
@@ -423,9 +473,24 @@ fn watch(
         };
         match message.view() {
             MessageView::Element(element) => {
-                if let Some(peak) = element.structure().and_then(level_peak) {
-                    peaks.lock().unwrap_or_else(|e| e.into_inner()).push(peak);
-                    shared.emit(Event::Level(peak));
+                if let Some(channels) = element.structure().and_then(level_peaks) {
+                    let (microphone, system) = split_tracks(source, &channels);
+                    {
+                        let mut peaks = peaks.lock().unwrap_or_else(|e| e.into_inner());
+                        if source != Source::System {
+                            peaks.microphone.push(microphone);
+                        }
+                        if source != Source::Microphone {
+                            peaks.system.push(system);
+                        }
+                    }
+                    shared.emit(Event::Level {
+                        microphone,
+                        system,
+                        elapsed_ms: pipeline
+                            .query_position::<gst::ClockTime>()
+                            .map_or(0, |t| t.mseconds()),
+                    });
                 }
             }
             MessageView::Eos(_) => {
@@ -444,17 +509,33 @@ fn watch(
     }
 }
 
-/// Reads the loudest channel from a `level` element message, as 0 to 1.
-fn level_peak(structure: &gst::StructureRef) -> Option<f32> {
+/// Reads the loudness of each channel, from 0 to 1, out of a `level` element
+/// message.
+fn level_peaks(structure: &gst::StructureRef) -> Option<Vec<f32>> {
     if structure.name() != "level" {
         return None;
     }
     let channels = structure.get::<glib::ValueArray>("peak").ok()?;
-    let decibels = channels
-        .iter()
-        .filter_map(|v| v.get::<f64>().ok())
-        .fold(f64::NEG_INFINITY, f64::max);
-    Some(10f64.powf(decibels / 20.0).clamp(0.0, 1.0) as f32)
+    Some(
+        channels
+            .iter()
+            .filter_map(|v| v.get::<f64>().ok())
+            .map(|decibels| 10f64.powf(decibels / 20.0).clamp(0.0, 1.0) as f32)
+            .collect(),
+    )
+}
+
+/// Turns per-channel loudness into the loudness of (microphone, system).
+fn split_tracks(source: Source, channels: &[f32]) -> (f32, f32) {
+    let loudest = |channels: &[f32]| channels.iter().copied().fold(0.0, f32::max);
+    match source {
+        Source::Microphone => (loudest(channels), 0.0),
+        Source::System => (0.0, loudest(channels)),
+        Source::Both => {
+            let (front, back) = channels.split_at(channels.len() / 2);
+            (loudest(front), loudest(back))
+        }
+    }
 }
 
 fn error_text(message: &gst::Message) -> Option<String> {
@@ -490,12 +571,20 @@ mod tests {
     fn recorder() -> (Recorder, mpsc::Receiver<Event>) {
         let (tx, rx) = mpsc::channel();
         let recorder = Recorder::new(move |event| {
-            if !matches!(event, Event::Level(_)) {
+            if !matches!(event, Event::Level { .. }) {
                 let _ = tx.send(event);
             }
         })
         .unwrap();
         (recorder, rx)
+    }
+
+    /// Uses the same test source for the microphone and for system audio.
+    fn both(source: &str) -> Inputs<'_> {
+        Inputs {
+            microphone: source,
+            system: source,
+        }
     }
 
     fn options(dir: &Path, format: Format) -> StartOptions {
@@ -527,12 +616,12 @@ mod tests {
             let (recorder, events) = recorder();
 
             let path = recorder
-                .start_from(TEST_TONE, options(dir.path(), format))
+                .start_from(&both(TEST_TONE), options(dir.path(), format))
                 .unwrap();
             assert_eq!(next(&events), Event::Started { path: path.clone() });
             assert_eq!(recorder.status().state, State::Recording);
             assert!(matches!(
-                recorder.start_from(TEST_TONE, options(dir.path(), format)),
+                recorder.start_from(&both(TEST_TONE), options(dir.path(), format)),
                 Err(Error::AlreadyRecording)
             ));
 
@@ -561,12 +650,12 @@ mod tests {
                 meta.duration_ms
             );
             assert!(
-                meta.peaks.len() >= 5,
+                meta.microphone_peaks.len() >= 5,
                 "{format}: {} peaks",
-                meta.peaks.len()
+                meta.microphone_peaks.len()
             );
             assert!(
-                meta.peaks.iter().any(|p| *p > 0.1),
+                meta.microphone_peaks.iter().any(|p| *p > 0.1),
                 "{format}: silent peaks"
             );
         }
@@ -581,7 +670,7 @@ mod tests {
         let (recorder, events) = recorder();
 
         let error = recorder
-            .start_from(TEST_TONE, options(&locked, Format::Opus))
+            .start_from(&both(TEST_TONE), options(&locked, Format::Opus))
             .expect_err("the file cannot be opened for writing");
         assert!(
             matches!(&error, Error::Start(m) if m.contains("for writing")),
@@ -597,7 +686,7 @@ mod tests {
 
         // The recorder is still usable afterwards.
         recorder
-            .start_from(TEST_TONE, options(dir.path(), Format::Opus))
+            .start_from(&both(TEST_TONE), options(dir.path(), Format::Opus))
             .unwrap();
         recorder.cancel().unwrap();
     }
@@ -610,7 +699,7 @@ mod tests {
         let (recorder, _events) = recorder();
 
         let error = recorder
-            .start_from(TEST_TONE, options(&dangling, Format::Opus))
+            .start_from(&both(TEST_TONE), options(&dangling, Format::Opus))
             .expect_err("a dangling symlink is not a usable folder");
         assert!(
             matches!(&error, Error::Start(m) if m.contains("missing, which does not exist")),
@@ -625,7 +714,7 @@ mod tests {
         let (recorder, events) = recorder();
 
         let path = recorder
-            .start_from(TEST_TONE, options(dir.path(), Format::Flac))
+            .start_from(&both(TEST_TONE), options(dir.path(), Format::Flac))
             .unwrap();
         std::thread::sleep(Duration::from_millis(200));
         recorder.cancel().unwrap();
@@ -643,7 +732,7 @@ mod tests {
 
         let breaks = format!("{TEST_TONE} ! identity error-after=20");
         let path = recorder
-            .start_from(&breaks, options(dir.path(), Format::Opus))
+            .start_from(&both(&breaks), options(dir.path(), Format::Opus))
             .unwrap();
 
         assert_eq!(next(&events), Event::Started { path: path.clone() });
@@ -668,12 +757,50 @@ mod tests {
 
         let finite = format!("{TEST_TONE} num-buffers=20");
         let path = recorder
-            .start_from(&finite, options(dir.path(), Format::Wav))
+            .start_from(&both(&finite), options(dir.path(), Format::Wav))
             .unwrap();
 
         assert_eq!(next(&events), Event::Started { path: path.clone() });
         assert_eq!(next(&events), Event::Stopped { path: path.clone() });
         assert_eq!(recorder.status().state, State::Idle);
         assert!(Library::new(dir.path()).meta(&path).unwrap().is_some());
+    }
+
+    #[test]
+    fn both_sources_are_kept_as_separate_tracks() {
+        const TONE: &str = "audiotestsrc is-live=true";
+        const SILENCE: &str = "audiotestsrc is-live=true wave=silence";
+        let loudest = |peaks: &[f32]| peaks.iter().copied().fold(0.0, f32::max);
+
+        for (microphone, system) in [(TONE, SILENCE), (SILENCE, TONE)] {
+            let dir = tempfile::tempdir().unwrap();
+            let (recorder, _events) = recorder();
+            let options = StartOptions {
+                source: Source::Both,
+                format: Format::Flac,
+                dir: dir.path().to_owned(),
+            };
+
+            let path = recorder
+                .start_from(&Inputs { microphone, system }, options)
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+            recorder.stop().unwrap();
+
+            let meta = Library::new(dir.path()).meta(&path).unwrap().unwrap();
+            let (loud, silent) = if microphone == TONE {
+                (&meta.microphone_peaks, &meta.system_peaks)
+            } else {
+                (&meta.system_peaks, &meta.microphone_peaks)
+            };
+            assert!(loudest(loud) > 0.5, "the tone is on its own track");
+            assert!(loudest(silent) < 0.01, "the tone did not leak: {silent:?}");
+            assert_eq!(silent.len(), loud.len());
+
+            // FLAC stores the channel count, minus one, in three bits of byte 20.
+            let header = fs::read(&path).unwrap();
+            assert_eq!(&header[..4], b"fLaC");
+            assert_eq!(((header[20] >> 1) & 0x07) + 1, 4, "two stereo pairs");
+        }
     }
 }
