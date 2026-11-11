@@ -4,7 +4,7 @@
 //! pair and system audio on the back pair. These mixes turn that into stereo
 //! for listening to, or saving, one track or both.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use gst::prelude::*;
@@ -64,14 +64,19 @@ impl Tracks {
 const EXPORT_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Saves the chosen tracks of a two-track recording as a stereo file in
-/// `format`. A partly written file is removed if the export fails.
+/// `format`. The file is written beside `destination` and moved into place
+/// once it is complete, so a failed export leaves nothing behind and never
+/// costs a file that was already there.
 pub fn export(source: &Path, tracks: Tracks, destination: &Path, format: Format) -> Result<()> {
     gst::init().map_err(|e| Error::Pipeline(format!("GStreamer could not be initialised: {e}")))?;
-    if source == destination {
+    if same_file(source, destination) {
         return Err(Error::Invalid(
             "a track cannot be saved over the recording it comes from".into(),
         ));
     }
+    let mut partial = destination.as_os_str().to_owned();
+    partial.push(".part");
+    let partial = PathBuf::from(partial);
 
     let description = format!(
         // The caps straight after the decoder require four channels, so a
@@ -91,16 +96,33 @@ pub fn export(source: &Path, tracks: Tracks, destination: &Path, format: Format)
             .expect("the description names this element")
     };
     element("source").set_property("location", source);
-    element("sink").set_property("location", destination);
+    element("sink").set_property("location", &partial);
 
     let result = run_to_end(&pipeline);
     let _ = pipeline.set_state(gst::State::Null);
+    let result = result.and_then(|()| {
+        std::fs::rename(&partial, destination).map_err(Error::io(format!(
+            "could not write {}",
+            destination.display()
+        )))
+    });
     if result.is_err() {
-        let _ = std::fs::remove_file(destination);
+        let _ = std::fs::remove_file(&partial);
         return result;
     }
     copy_waveform(source, tracks, destination);
     Ok(())
+}
+
+/// Whether two paths lead to the same file, however each is spelled: the
+/// recordings folder may be reached through a link.
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        // A file that does not exist yet cannot be the recording.
+        _ => a == b,
+    }
 }
 
 /// A track saved next to its recording gets that track's length and
@@ -296,20 +318,58 @@ mod tests {
         assert!(!elsewhere.path().join(".earshot").exists());
     }
 
-    #[test]
-    fn a_single_track_recording_cannot_be_split_and_leaves_no_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let source = dir.path().join("mono.flac");
+    /// Writes a FLAC file with a single channel, which has no tracks to split.
+    fn one_track_file(path: &Path) {
         gst::init().unwrap();
         let pipeline = gst::parse::launch(&format!(
             "audiotestsrc num-buffers=10 ! audio/x-raw,channels=1 ! flacenc ! filesink location=\"{}\"",
-            source.display()
+            path.display()
         ))
         .unwrap()
         .downcast::<gst::Pipeline>()
         .unwrap();
         run_to_end(&pipeline).unwrap();
         pipeline.set_state(gst::State::Null).unwrap();
+    }
+
+    #[test]
+    fn a_failed_export_keeps_the_file_that_was_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("mono.flac");
+        one_track_file(&source);
+        let existing = dir.path().join("kept.wav");
+        std::fs::write(&existing, b"already here").unwrap();
+
+        assert!(export(&source, Tracks::Microphone, &existing, Format::Wav).is_err());
+
+        assert_eq!(std::fs::read(&existing).unwrap(), b"already here");
+        let files = std::fs::read_dir(dir.path()).unwrap().count();
+        assert_eq!(files, 2, "no partly written file is left behind");
+    }
+
+    #[test]
+    fn a_recording_reached_through_a_link_is_not_saved_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("recordings");
+        std::fs::create_dir(&folder).unwrap();
+        let source = folder.join("both.flac");
+        two_track_file(&source);
+        let audio = std::fs::read(&source).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&folder, &link).unwrap();
+
+        let same = link.join("both.flac");
+        let error = export(&source, Tracks::Microphone, &same, Format::Flac).unwrap_err();
+
+        assert!(error.to_string().contains("over the recording"), "{error}");
+        assert_eq!(std::fs::read(&source).unwrap(), audio);
+    }
+
+    #[test]
+    fn a_single_track_recording_cannot_be_split_and_leaves_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("mono.flac");
+        one_track_file(&source);
 
         let out = dir.path().join("mic.wav");
         let error = export(&source, Tracks::Microphone, &out, Format::Wav).unwrap_err();
