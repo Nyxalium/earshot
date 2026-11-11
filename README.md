@@ -104,6 +104,12 @@ cargo test
 The recorder tests run real GStreamer pipelines with a generated test tone, so
 they need GStreamer installed but no microphone.
 
+## Contributing
+
+Contributions are welcome, including ones written with AI coding agents.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains why Earshot exists, where it's
+heading, and good places to start.
+
 ## Licence
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
