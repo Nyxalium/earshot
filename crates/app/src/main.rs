@@ -4,6 +4,7 @@
 mod backend;
 mod icon;
 mod player;
+mod settings;
 mod waveform;
 mod window;
 

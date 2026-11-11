@@ -178,3 +178,31 @@ button.menu-item {
 button.menu-item.destructive { color: @red; }
 popover.row-menu entry { min-height: 30px; }
 popover.row-menu box.horizontal { margin: 2px; }
+
+headerbar button.settings-button {
+  border-color: transparent;
+  color: @dim;
+  min-width: 28px;
+  min-height: 26px;
+  padding: 0;
+}
+headerbar button.settings-button:hover { color: @text; }
+
+.settings { padding: 8px 20px 20px; }
+.setting { margin-top: 16px; }
+.heading { font-weight: 600; }
+.problem {
+  color: @red;
+  margin-top: 12px;
+}
+.settings dropdown > button { min-width: 140px; }
+
+popover listview { background: none; }
+popover listview > row {
+  background: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: @text;
+}
+popover listview > row:hover,
+popover listview > row:selected { background-color: alpha(@text, 0.08); }

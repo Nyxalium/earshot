@@ -21,13 +21,19 @@ The person running you may have Earshot open, with recordings in
   `$XDG_CONFIG_HOME/earshot/config.toml`. Point `XDG_CONFIG_HOME` at a temporary
   folder whose `config.toml` sets `recordings_dir` to a temporary folder, for
   every `earshotd`, `earshot` and `earshot-app` you start.
-- **Use a private D-Bus session.** The service owns
-  `io.github.nyxalium.Earshot.Service` and the window registers
+- **Use a private D-Bus session that cannot start services.** The service
+  owns `io.github.nyxalium.Earshot.Service` and the window registers
   `io.github.nyxalium.Earshot` on the session bus. On the user's bus, your test
   window would just raise their window, and your commands would control their
-  recorder. Run tests inside `dbus-run-session -- <script>`. Send that
-  session's output to a file rather than a pipe: services activated on the
-  private bus can keep a pipe open and hang the command.
+  recorder. Run tests inside
+  `dbus-run-session --config-file=dev/test-bus.conf -- <script>`. That config
+  has no service directories. With the default config, the private bus starts
+  desktop services on demand (portals, the secret service, KDE Connect), and
+  they outlive the test and can draw dialogs on the user's real screen.
+- **Turn off portals** with `GDK_DEBUG=no-portals` when starting the window,
+  so file pickers are GTK's own and appear inside the test display.
+- **Don't press Open in Settings** during tests. It launches the user's real
+  file manager.
 - **Trash only works under the home folder.** Recordings in `/tmp` cannot be
   moved to the trash, so delete fails there by design. To test delete, use a
   scratch folder under `~/.cache`. Afterwards, remove from

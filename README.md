@@ -41,6 +41,10 @@ earshot-app
 earshot-app ~/Music/Earshot/"Band practice.opus"   # open with a recording selected
 ```
 
+The cog in the title bar (or Ctrl+,) opens Settings: the recordings folder,
+the file format, and the default source. They are saved to the same config
+file described below.
+
 Recordings are listed on the left. The right side shows the recording in
 progress, or the one you select: its waveform, and playback with seeking and
 speed. Right-click a recording in the list (or press the Menu key) to rename it
@@ -75,7 +79,8 @@ microphone above the line of the waveform and system audio below it.
 
 ## Settings
 
-Settings are optional and live in `~/.config/earshot/config.toml`:
+Change settings in the window, or edit `~/.config/earshot/config.toml`
+directly. Every setting is optional:
 
 ```toml
 recordings_dir = "/home/you/Music/Earshot"

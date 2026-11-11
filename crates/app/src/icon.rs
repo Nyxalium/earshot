@@ -12,6 +12,7 @@ pub enum Icon {
     Stop,
     Play,
     Pause,
+    Settings,
 }
 
 /// A 16-pixel icon.
@@ -52,6 +53,21 @@ impl IconView {
                     Icon::Pause => {
                         cr.rectangle(4.0, 3.5, 3.0, 9.0);
                         cr.rectangle(9.0, 3.5, 3.0, 9.0);
+                    }
+                    Icon::Settings => {
+                        // A cog: a ring with eight teeth.
+                        cr.set_line_width(2.0);
+                        cr.arc(8.0, 8.0, 3.8, 0.0, TAU);
+                        let _ = cr.stroke();
+                        cr.set_line_width(2.4);
+                        for tooth in 0..8 {
+                            let angle = f64::from(tooth) * TAU / 8.0;
+                            let (sin, cos) = angle.sin_cos();
+                            cr.move_to(8.0 + cos * 4.8, 8.0 + sin * 4.8);
+                            cr.line_to(8.0 + cos * 7.0, 8.0 + sin * 7.0);
+                        }
+                        let _ = cr.stroke();
+                        return;
                     }
                 }
                 // Drawing only fails if the surface is gone; nothing to show then.

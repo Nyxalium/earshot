@@ -51,6 +51,29 @@ impl Config {
         toml::from_str(&text)
             .map_err(|e| Error::Invalid(format!("invalid config {}: {e}", path.display())))
     }
+
+    /// Saves the config to the user's config file.
+    pub fn save(&self) -> Result<()> {
+        self.save_to(&Self::path())
+    }
+
+    /// Writes the whole config to a temporary file and moves it into place,
+    /// so a crash mid-write never leaves a half-written config behind.
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(Error::io(format!("could not create {}", dir.display())))?;
+        }
+        let text = toml::to_string(self)
+            .map_err(|e| Error::Invalid(format!("could not write the config: {e}")))?;
+        let temporary = path.with_extension("toml.tmp");
+        std::fs::write(&temporary, text).map_err(Error::io(format!(
+            "could not write {}",
+            temporary.display()
+        )))?;
+        std::fs::rename(&temporary, path)
+            .map_err(Error::io(format!("could not replace {}", path.display())))
+    }
 }
 
 #[cfg(test)]
@@ -74,6 +97,23 @@ mod tests {
         assert_eq!(config.format, Format::Flac);
         assert_eq!(config.source, Source::Both);
         assert_eq!(config.recordings_dir, Config::default().recordings_dir);
+    }
+
+    #[test]
+    fn saved_config_loads_back_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new folder").join("config.toml");
+        let config = Config {
+            recordings_dir: PathBuf::from("/srv/recordings/with \"quotes\" and spaces"),
+            format: Format::Wav,
+            source: Source::System,
+        };
+
+        config.save_to(&path).unwrap();
+
+        assert_eq!(Config::load_from(&path).unwrap(), config);
+        let entries: Vec<_> = std::fs::read_dir(path.parent().unwrap()).unwrap().collect();
+        assert_eq!(entries.len(), 1, "no temporary file is left behind");
     }
 
     #[test]

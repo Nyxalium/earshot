@@ -44,6 +44,7 @@
 - [x] Two-track waveform, live and for saved recordings
 - [ ] Waveform for audio files Earshot did not record
 - [ ] More visualisers (spectrum, level meter) and themes
+- [x] Settings window: recordings folder, format, default source
 - [ ] Recording indicator in the system tray, with elapsed time and stop
 - [ ] Global shortcut: a desktop shortcut bound to `earshot toggle`, which
       starts the service on demand, so nothing has to run at login

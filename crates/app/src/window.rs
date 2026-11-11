@@ -8,11 +8,12 @@ use std::rc::{Rc, Weak};
 
 use earshot_client::{EarshotProxy, RecordingInfo, StartOptions, Status, clock, file_size};
 use gtk::prelude::*;
-use gtk::{glib, pango};
+use gtk::{gio, glib, pango};
 
 use crate::backend::{Backend, Event};
 use crate::icon::{self, Icon, IconView};
 use crate::player::{Player, PlayerEvent};
+use crate::settings;
 use crate::waveform::{Tracks, Waveform};
 
 /// The service's name for each source, and its label in the source menu.
@@ -51,6 +52,7 @@ impl MainWindow {
         let ui = match Ui::new() {
             Ok((ui, root)) => {
                 window.set_child(Some(&root));
+                add_settings(app, &window, &header, &ui);
                 Some(ui)
             }
             Err(message) => {
@@ -78,6 +80,42 @@ impl MainWindow {
             ui.open(path.to_string_lossy().into_owned());
         }
     }
+}
+
+/// Adds the settings button to the title bar, and Ctrl+, to open it.
+fn add_settings(
+    app: &gtk::Application,
+    window: &gtk::ApplicationWindow,
+    header: &gtk::HeaderBar,
+    ui: &Rc<Ui>,
+) {
+    let action = gio::SimpleAction::new("settings", None);
+    action.connect_activate(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        ui,
+        move |_, _| {
+            settings::show(
+                &window,
+                glib::clone!(
+                    #[weak]
+                    ui,
+                    move |config| ui.settings_changed(config)
+                ),
+            );
+        }
+    ));
+    window.add_action(&action);
+    app.set_accels_for_action("win.settings", &["<Control>comma"]);
+
+    let button = gtk::Button::builder()
+        .child(IconView::new(Icon::Settings).widget())
+        .action_name("win.settings")
+        .tooltip_text("Settings (Ctrl+,)")
+        .build();
+    button.add_css_class("settings-button");
+    header.pack_end(&button);
 }
 
 struct Ui {
@@ -386,6 +424,12 @@ impl Ui {
         });
         let _ = this.set(Rc::downgrade(&ui));
 
+        // The source chosen here becomes the default, as in Settings.
+        ui.source.connect_selected_notify(glib::clone!(
+            #[weak]
+            ui,
+            move |_| ui.remember_source()
+        ));
         record.connect_clicked(glib::clone!(
             #[weak]
             ui,
@@ -636,6 +680,38 @@ impl Ui {
             }
             Event::Failed(message) => self.error(&format!("Recording failed: {message}")),
             Event::RecordingsChanged => self.reload(),
+        }
+    }
+
+    /// Settings were saved: show the new default source, and the list of the
+    /// recordings folder, which may have changed.
+    fn settings_changed(self: &Rc<Self>, config: &earshot_core::Config) {
+        let name = config.source.to_string();
+        if let Some(index) = SOURCES.iter().position(|(n, _)| *n == name) {
+            if self.source.selected() != index as u32 {
+                self.source.set_selected(index as u32);
+            }
+        }
+        self.reload();
+    }
+
+    /// Saves the source picked in the sidebar as the default.
+    fn remember_source(&self) {
+        let Some(source) = SOURCES
+            .get(self.source.selected() as usize)
+            .and_then(|(name, _)| name.parse::<earshot_core::Source>().ok())
+        else {
+            return;
+        };
+        let saved = earshot_core::Config::load().and_then(|mut config| {
+            if config.source == source {
+                return Ok(());
+            }
+            config.source = source;
+            config.save()
+        });
+        if let Err(e) = saved {
+            self.error(&format!("Could not save the source as the default: {e}"));
         }
     }
 
