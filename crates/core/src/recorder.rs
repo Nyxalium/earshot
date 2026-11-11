@@ -266,13 +266,13 @@ impl Recorder {
             .set_property("location", &path);
 
         let bus = pipeline.bus().expect("a pipeline has a bus");
-        let started = pipeline.set_state(gst::State::Playing).is_ok()
-            && pipeline
-                .state(gst::ClockTime::from_mseconds(
-                    STATE_TIMEOUT.as_millis() as u64
-                ))
-                .0
-                .is_ok();
+        // Running out of time is not an error to GStreamer, only a state
+        // change still under way, so the state reached is what counts.
+        let started = pipeline.set_state(gst::State::Playing).is_ok() && {
+            let timeout = gst::ClockTime::from_mseconds(STATE_TIMEOUT.as_millis() as u64);
+            let (result, reached, _) = pipeline.state(timeout);
+            result.is_ok() && reached == gst::State::Playing
+        };
         if !started {
             let message = bus
                 .pop_filtered(&[gst::MessageType::Error])
@@ -689,6 +689,28 @@ mod tests {
             .start_from(&both(TEST_TONE), options(dir.path(), Format::Opus))
             .unwrap();
         recorder.cancel().unwrap();
+    }
+
+    #[test]
+    fn a_pipeline_that_never_delivers_audio_has_not_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let (recorder, events) = recorder();
+
+        // Every buffer is dropped, so nothing ever reaches the file.
+        let stalled = format!("{TEST_TONE} ! identity drop-probability=1");
+        let error = recorder
+            .start_from(&both(&stalled), options(dir.path(), Format::Opus))
+            .expect_err("no audio is flowing");
+        assert!(
+            matches!(&error, Error::Start(m) if m.contains("did not start")),
+            "{error}"
+        );
+        assert_eq!(recorder.status().state, State::Idle);
+        assert!(
+            events.try_recv().is_err(),
+            "no Started event for a failed start"
+        );
+        assert_eq!(files_in(dir.path()), Vec::<PathBuf>::new());
     }
 
     #[test]
