@@ -103,6 +103,7 @@ list > row {
 }
 list > row:hover { background-color: alpha(@text, 0.04); }
 list > row:selected { background-color: @selected; }
+list > row.menu-target { box-shadow: inset 0 0 0 1px @line; }
 .group {
   font-size: 12px;
   color: @dim;
@@ -164,3 +165,16 @@ popover > arrow {
 *:focus-visible {
   outline-color: alpha(@text, 0.45);
 }
+
+popover.row-menu > contents { padding: 4px; }
+button.menu-item {
+  border-color: transparent;
+  border-radius: 6px;
+  min-height: 30px;
+  min-width: 150px;
+  padding: 0 10px;
+  font-weight: normal;
+}
+button.menu-item.destructive { color: @red; }
+popover.row-menu entry { min-height: 30px; }
+popover.row-menu box.horizontal { margin: 2px; }

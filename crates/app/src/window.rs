@@ -117,8 +117,13 @@ struct Ui {
     duration: gtk::Label,
     play_icon: IconView,
     speed: gtk::Button,
-    rename: gtk::MenuButton,
+
+    // A recording's menu in the list, and the name field for renaming it
+    row_menu: gtk::Popover,
+    rename_popover: gtk::Popover,
     rename_entry: gtk::Entry,
+    /// The recording the menu or name field is open for, and its row.
+    menu_target: RefCell<Option<(String, gtk::ListBoxRow)>>,
     /// Updates the position display every frame, only while playing.
     progress_tick: RefCell<Option<gtk::TickCallbackId>>,
 }
@@ -265,22 +270,6 @@ impl Ui {
         let title = label("", &["title"]);
         title.set_hexpand(true);
         title.set_ellipsize(pango::EllipsizeMode::End);
-        let rename_entry = gtk::Entry::builder().width_chars(28).build();
-        let rename_confirm = gtk::Button::with_label("Rename");
-        let rename_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        rename_box.append(&rename_entry);
-        rename_box.append(&rename_confirm);
-        let rename = gtk::MenuButton::builder()
-            .child(&gtk::Label::new(Some("Rename")))
-            .popover(&gtk::Popover::builder().child(&rename_box).build())
-            .build();
-        rename.add_css_class("flat");
-        let delete = gtk::Button::with_label("Delete");
-        delete.add_css_class("flat");
-        let title_row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-        title_row.append(&title);
-        title_row.append(&rename);
-        title_row.append(&delete);
 
         let meta = label("", &["dim"]);
         let wave = Waveform::new();
@@ -311,7 +300,7 @@ impl Ui {
 
         let playback_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         playback_page.add_css_class("page");
-        playback_page.append(&title_row);
+        playback_page.append(&title);
         playback_page.append(&meta);
         let wave_area = wave_area(&wave, &wave_tracks, 150);
         wave_area.attach(&times, 0, 1, 1, 1);
@@ -327,6 +316,34 @@ impl Ui {
         right.set_hexpand(true);
         right.append(&banner);
         right.append(&pages);
+
+        // A recording's menu in the list. Renaming opens a separate popup:
+        // swapping the menu's contents would hide the focused item, and GTK
+        // closes a popup that loses focus.
+        let rename_item = menu_item("Rename…");
+        let delete_item = menu_item("Move to trash");
+        delete_item.add_css_class("destructive");
+        let items = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        items.append(&rename_item);
+        items.append(&delete_item);
+        let rename_entry = gtk::Entry::builder().width_chars(26).build();
+        let rename_confirm = gtk::Button::with_label("Rename");
+        let rename_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        rename_box.append(&rename_entry);
+        rename_box.append(&rename_confirm);
+        let popover = |child: &gtk::Box| {
+            let popover = gtk::Popover::builder()
+                .child(child)
+                .has_arrow(false)
+                .position(gtk::PositionType::Bottom)
+                .halign(gtk::Align::Start)
+                .build();
+            popover.add_css_class("row-menu");
+            popover.set_parent(&list);
+            popover
+        };
+        let row_menu = popover(&items);
+        let rename_popover = popover(&rename_box);
 
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         root.append(&sidebar);
@@ -361,8 +378,10 @@ impl Ui {
             duration,
             play_icon,
             speed,
-            rename,
+            row_menu,
+            rename_popover,
             rename_entry,
+            menu_target: RefCell::default(),
             progress_tick: RefCell::default(),
         });
         let _ = this.set(Rc::downgrade(&ui));
@@ -464,14 +483,85 @@ impl Ui {
             move |fraction| ui.seek(fraction)
         ));
 
-        if let Some(popover) = ui.rename.popover() {
-            popover.connect_show(glib::clone!(
+        // Right-click, the Menu key or Shift+F10 opens a recording's menu;
+        // F2 and Delete go straight to renaming and trashing it.
+        let right_click = gtk::GestureClick::builder().button(3).build();
+        right_click.connect_pressed(glib::clone!(
+            #[weak]
+            ui,
+            move |gesture, _, x, y| {
+                if let Some(row) = ui.list.row_at_y(y as i32) {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    ui.open_row_menu(&row, Some((x, y)));
+                }
+            }
+        ));
+        ui.list.add_controller(right_click);
+        let keys = gtk::EventControllerKey::new();
+        keys.connect_key_pressed(glib::clone!(
+            #[weak]
+            ui,
+            #[upgrade_or]
+            glib::Propagation::Proceed,
+            move |_, key, _, modifiers| {
+                // The focused row, or the selected one if focus is elsewhere
+                // in the list.
+                let Some(row) = ui
+                    .list
+                    .focus_child()
+                    .and_then(|child| child.downcast::<gtk::ListBoxRow>().ok())
+                    .or_else(|| ui.list.selected_row())
+                else {
+                    return glib::Propagation::Proceed;
+                };
+                let shift = modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK);
+                match key {
+                    gtk::gdk::Key::Menu => ui.open_row_menu(&row, None),
+                    gtk::gdk::Key::F10 if shift => ui.open_row_menu(&row, None),
+                    gtk::gdk::Key::F2 => ui.show_rename(&row),
+                    gtk::gdk::Key::Delete => {
+                        if let Some(path) = ui.path_of(&row) {
+                            ui.delete(path);
+                        }
+                    }
+                    _ => return glib::Propagation::Proceed,
+                }
+                glib::Propagation::Stop
+            }
+        ));
+        ui.list.add_controller(keys);
+        rename_item.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                let row = ui.menu_target.borrow().as_ref().map(|(_, row)| row.clone());
+                ui.row_menu.popdown();
+                if let Some(row) = row {
+                    ui.show_rename(&row);
+                }
+            }
+        ));
+        delete_item.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                let target = ui.menu_target.borrow().clone();
+                ui.row_menu.popdown();
+                if let Some((path, _)) = target {
+                    ui.delete(path);
+                }
+            }
+        ));
+        for popover in [&ui.row_menu, &ui.rename_popover] {
+            popover.connect_closed(glib::clone!(
                 #[weak]
                 ui,
                 move |_| {
-                    let name = ui.selected().map(|r| r.name).unwrap_or_default();
-                    ui.rename_entry.set_text(&name);
-                    ui.rename_entry.grab_focus();
+                    // Choosing Rename closes the menu and opens the name field;
+                    // the mark stays while either is open.
+                    if !ui.row_menu.is_visible() && !ui.rename_popover.is_visible() {
+                        ui.set_target(None);
+                    }
                 }
             ));
         }
@@ -484,11 +574,6 @@ impl Ui {
             #[weak]
             ui,
             move |_| ui.rename()
-        ));
-        delete.connect_clicked(glib::clone!(
-            #[weak]
-            ui,
-            move |_| ui.delete()
         ));
 
         glib::spawn_future_local({
@@ -728,10 +813,64 @@ impl Ui {
         }
     }
 
-    fn selected(&self) -> Option<RecordingInfo> {
+    fn path_of(&self, row: &gtk::ListBoxRow) -> Option<String> {
         let model = self.model.borrow();
-        let path = model.selected.as_ref()?;
-        model.recordings.iter().find(|r| &r.path == path).cloned()
+        model
+            .recordings
+            .get(row.index() as usize)
+            .map(|r| r.path.clone())
+    }
+
+    /// Marks the row a menu or name field is open for, or clears the mark.
+    /// Returns the path of its recording.
+    fn set_target(&self, row: Option<&gtk::ListBoxRow>) -> Option<String> {
+        let target = row.and_then(|row| Some((self.path_of(row)?, row.clone())));
+        if let Some((_, previous)) = self.menu_target.replace(target.clone()) {
+            previous.remove_css_class("menu-target");
+        }
+        let (path, row) = target?;
+        row.add_css_class("menu-target");
+        Some(path)
+    }
+
+    /// Points a popup at `at`, or below the row's name if there is no point.
+    fn point_at(&self, popover: &gtk::Popover, row: &gtk::ListBoxRow, at: Option<(f64, f64)>) {
+        let point = at.or_else(|| {
+            let bounds = row.compute_bounds(&self.list)?;
+            Some((
+                f64::from(bounds.x()) + 8.0,
+                f64::from(bounds.y() + bounds.height()),
+            ))
+        });
+        if let Some((x, y)) = point {
+            let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+            popover.set_pointing_to(Some(&rect));
+        }
+    }
+
+    /// Opens the menu for a recording in the list, at the pointer if it was
+    /// right-clicked, or below the row if it was opened from the keyboard.
+    fn open_row_menu(&self, row: &gtk::ListBoxRow, at: Option<(f64, f64)>) {
+        if self.set_target(Some(row)).is_some() {
+            self.point_at(&self.row_menu, row, at);
+            self.row_menu.popup();
+        }
+    }
+
+    /// Opens the name field for a recording in the list, below its row.
+    fn show_rename(&self, row: &gtk::ListBoxRow) {
+        let Some(path) = self.set_target(Some(row)) else {
+            return;
+        };
+        let name = {
+            let model = self.model.borrow();
+            let recording = model.recordings.iter().find(|r| r.path == path);
+            recording.map(|r| r.name.clone()).unwrap_or_default()
+        };
+        self.rename_entry.set_text(&name);
+        self.point_at(&self.rename_popover, row, None);
+        self.rename_popover.popup();
+        self.rename_entry.grab_focus();
     }
 
     // The selected recording
@@ -891,11 +1030,12 @@ impl Ui {
 
     fn rename(self: &Rc<Self>) {
         let name = self.rename_entry.text().to_string();
-        let Some(path) = self.model.borrow().selected.clone() else {
+        let Some((path, _)) = self.menu_target.borrow().clone() else {
             return;
         };
-        self.rename.popdown();
-        self.model.borrow_mut().renaming = true;
+        self.rename_popover.popdown();
+        let open = self.model.borrow().selected.as_ref() == Some(&path);
+        self.model.borrow_mut().renaming = open;
 
         let ui = self.clone();
         glib::spawn_future_local(async move {
@@ -905,29 +1045,35 @@ impl Ui {
                 .await;
             ui.model.borrow_mut().renaming = false;
             match renamed {
-                Ok(new_path) => {
+                Ok(new_path) if open => {
                     // The file has moved, so it is reopened under its new path.
                     ui.close_recording();
                     ui.model.borrow_mut().select_next = Some(new_path);
                 }
+                Ok(_) => {}
                 Err(message) => ui.error(&message),
             }
             ui.reload();
         });
     }
 
-    fn delete(self: &Rc<Self>) {
-        let Some(path) = self.model.borrow().selected.clone() else {
-            return;
-        };
-        self.close_recording();
-        self.list.unselect_all();
-        self.pages.set_visible_child_name("empty");
+    fn delete(self: &Rc<Self>, path: String) {
+        if self.model.borrow().selected.as_ref() == Some(&path) {
+            self.close_recording();
+            self.list.unselect_all();
+            self.pages.set_visible_child_name("empty");
+        }
         self.request(
             move |service| async move { service.delete(&path).await },
             |_, _| {},
         );
     }
+}
+
+fn menu_item(text: &str) -> gtk::Button {
+    let button = gtk::Button::builder().child(&label(text, &[])).build();
+    button.add_css_class("menu-item");
+    button
 }
 
 fn label(text: &str, classes: &[&str]) -> gtk::Label {
