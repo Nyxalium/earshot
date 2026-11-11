@@ -1,0 +1,13 @@
+[package]
+name = "earshot-client"
+description = "D-Bus interface of the Earshot service, for the programs that control it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zbus.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["time"] }

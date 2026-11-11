@@ -1,0 +1,19 @@
+[package]
+name = "earshot-cli"
+description = "Terminal command for controlling Earshot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "earshot"
+path = "src/main.rs"
+
+[dependencies]
+earshot-client.workspace = true
+zbus.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+clap = { version = "4", features = ["derive"] }
+serde_json.workspace = true

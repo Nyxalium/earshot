@@ -1,0 +1,18 @@
+[package]
+name = "earshot-service"
+description = "Background service that records audio and exposes Earshot over D-Bus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "earshotd"
+path = "src/main.rs"
+
+[dependencies]
+earshot-core.workspace = true
+earshot-client.workspace = true
+zbus.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "signal"] }

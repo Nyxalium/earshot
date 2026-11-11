@@ -1,0 +1,19 @@
+[package]
+name = "earshot-core"
+description = "Recording engine and recordings library for Earshot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gstreamer = "0.25"
+gio = "0.22"
+serde.workspace = true
+serde_json.workspace = true
+toml = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
