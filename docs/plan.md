@@ -42,6 +42,9 @@
 - [x] Window: record, pause, stop, list with search and playback, rename,
       delete
 - [x] Two-track waveform, live and for saved recordings
+- [x] Waveform menu: play from here, copy timestamp, hear one track, save one
+      track as a file
+- [ ] Per-track volume (balance between mic and system audio)
 - [ ] Waveform for audio files Earshot did not record
 - [ ] More visualisers (spectrum, level meter) and themes
 - [x] Settings window: recordings folder, format, default source

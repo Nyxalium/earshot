@@ -51,6 +51,12 @@ speed. Right-click a recording in the list (or press the Menu key) to rename it
 or move it to the trash; F2 and Delete do the same for the focused recording.
 A recording keeps going if you close the window.
 
+Right-click the waveform to play from that point or copy its timestamp. For a
+recording of both sources, the same menu lets you hear both tracks, only the
+mic or only system audio, and save either track as its own file. Clicking
+**Mic** or **System** beside the waveform also plays just that track; click it
+again to hear both.
+
 ## The command
 
 ```sh
@@ -75,7 +81,8 @@ Add `--json` to any command for machine-readable output.
 Recording the microphone and system audio together does not mix them. The file
 has four channels: the microphone on the front pair and system audio on the
 back pair. Other players play that as a normal mix, and Earshot draws the
-microphone above the line of the waveform and system audio below it.
+microphone above the line of the waveform and system audio below it. Earshot
+can play either track alone, or save it as an ordinary stereo file.
 
 ## Settings
 

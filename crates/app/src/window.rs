@@ -1,12 +1,13 @@
 //! The main window: recordings on the left, and on the right the recording in
 //! progress or the one that is selected.
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use earshot_client::{EarshotProxy, RecordingInfo, StartOptions, Status, clock, file_size};
+use earshot_core::{Format, Tracks as Heard};
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
@@ -134,6 +135,7 @@ struct Ui {
 
     // Right side
     banner: gtk::Revealer,
+    banner_box: gtk::Box,
     banner_text: gtk::Label,
     pages: gtk::Stack,
     empty: gtk::Label,
@@ -150,7 +152,18 @@ struct Ui {
     title: gtk::Label,
     meta: gtk::Label,
     wave: Waveform,
-    wave_tracks: gtk::Box,
+    /// Beside a two-track waveform: click one to hear only that track.
+    track_toggles: gtk::Box,
+    mic_toggle: gtk::Button,
+    system_toggle: gtk::Button,
+    /// The waveform's right-click menu.
+    wave_menu: gtk::Popover,
+    /// The check marks beside Both tracks, Mic only and System only.
+    heard_checks: [(Heard, gtk::Label); 3],
+    /// Menu items that only apply to two-track recordings.
+    two_track_items: gtk::Box,
+    /// Where on the waveform the menu was opened, from 0 to 1.
+    menu_fraction: Cell<f64>,
     position: gtk::Label,
     duration: gtk::Label,
     play_icon: IconView,
@@ -311,7 +324,16 @@ impl Ui {
 
         let meta = label("", &["dim"]);
         let wave = Waveform::new();
-        let wave_tracks = track_labels();
+        let mic_toggle = track_toggle("Mic", "Hear only the mic. Click again for both.");
+        let system_toggle = track_toggle("System", "Hear only system audio. Click again for both.");
+        system_toggle.add_css_class("system");
+        let track_toggles = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .homogeneous(true)
+            .width_request(56)
+            .build();
+        track_toggles.append(&mic_toggle);
+        track_toggles.append(&system_toggle);
         let position = label("0:00", &["small", "dim", "tnum"]);
         position.set_hexpand(true);
         let duration = label("", &["small", "dim", "tnum"]);
@@ -340,7 +362,7 @@ impl Ui {
         playback_page.add_css_class("page");
         playback_page.append(&title);
         playback_page.append(&meta);
-        let wave_area = wave_area(&wave, &wave_tracks, 150);
+        let wave_area = wave_area(&wave, &track_toggles, 150);
         wave_area.attach(&times, 0, 1, 1, 1);
         wave_area.attach(&transport, 0, 2, 1, 1);
         playback_page.append(&wave_area);
@@ -383,6 +405,41 @@ impl Ui {
         let row_menu = popover(&items);
         let rename_popover = popover(&rename_box);
 
+        // The waveform's right-click menu.
+        let play_here = menu_item("Play from here");
+        let copy_time = menu_item("Copy timestamp");
+        let mut heard_items = Vec::new();
+        let two_track_items = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        two_track_items.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let heard_checks = [
+            (Heard::Both, "Both tracks"),
+            (Heard::Microphone, "Mic only"),
+            (Heard::System, "System only"),
+        ]
+        .map(|(heard, text)| {
+            let (item, check) = check_item(text);
+            two_track_items.append(&item);
+            heard_items.push((heard, item));
+            (heard, check)
+        });
+        two_track_items.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let save_mic = menu_item("Save mic track as…");
+        let save_system = menu_item("Save system track as…");
+        two_track_items.append(&save_mic);
+        two_track_items.append(&save_system);
+        let wave_items = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        wave_items.append(&play_here);
+        wave_items.append(&copy_time);
+        wave_items.append(&two_track_items);
+        let wave_menu = gtk::Popover::builder()
+            .child(&wave_items)
+            .has_arrow(false)
+            .position(gtk::PositionType::Bottom)
+            .halign(gtk::Align::Start)
+            .build();
+        wave_menu.add_css_class("row-menu");
+        wave_menu.set_parent(wave.widget());
+
         let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         root.append(&sidebar);
         root.append(&right);
@@ -399,6 +456,7 @@ impl Ui {
             search,
             list,
             banner,
+            banner_box,
             banner_text,
             pages,
             empty,
@@ -411,7 +469,13 @@ impl Ui {
             title,
             meta,
             wave,
-            wave_tracks,
+            track_toggles,
+            mic_toggle,
+            system_toggle,
+            wave_menu,
+            heard_checks,
+            two_track_items,
+            menu_fraction: Cell::new(0.0),
             position,
             duration,
             play_icon,
@@ -526,6 +590,75 @@ impl Ui {
             ui,
             move |fraction| ui.seek(fraction)
         ));
+        ui.wave.connect_context_menu(glib::clone!(
+            #[weak]
+            ui,
+            move |fraction, x, y| {
+                ui.menu_fraction.set(fraction);
+                let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+                ui.wave_menu.set_pointing_to(Some(&rect));
+                ui.wave_menu.popup();
+            }
+        ));
+        play_here.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                ui.wave_menu.popdown();
+                ui.seek(ui.menu_fraction.get());
+                ui.set_playing(true);
+            }
+        ));
+        copy_time.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                ui.wave_menu.popdown();
+                let ms = (ui.menu_fraction.get() * ui.duration_ms() as f64) as u64;
+                ui.wave.widget().clipboard().set_text(&clock(ms));
+            }
+        ));
+        for (heard, item) in heard_items {
+            item.connect_clicked(glib::clone!(
+                #[weak]
+                ui,
+                move |_| {
+                    ui.wave_menu.popdown();
+                    ui.hear(heard);
+                }
+            ));
+        }
+        for (heard, item) in [
+            (Heard::Microphone, &save_mic),
+            (Heard::System, &save_system),
+        ] {
+            item.connect_clicked(glib::clone!(
+                #[weak]
+                ui,
+                move |_| {
+                    ui.wave_menu.popdown();
+                    ui.save_track(heard);
+                }
+            ));
+        }
+        for (heard, toggle) in [
+            (Heard::Microphone, &ui.mic_toggle),
+            (Heard::System, &ui.system_toggle),
+        ] {
+            toggle.connect_clicked(glib::clone!(
+                #[weak]
+                ui,
+                move |_| {
+                    // Clicking the track already heard alone goes back to both.
+                    let current = ui.player.tracks();
+                    ui.hear(if current == Some(heard) {
+                        Heard::Both
+                    } else {
+                        heard
+                    });
+                }
+            ));
+        }
 
         // Right-click, the Menu key or Shift+F10 opens a recording's menu;
         // F2 and Delete go straight to renaming and trashing it.
@@ -640,6 +773,17 @@ impl Ui {
 
     /// Shows a problem above the pages until it is dismissed.
     fn error(&self, message: &str) {
+        self.banner_box.remove_css_class("notice");
+        self.show_banner(message);
+    }
+
+    /// Shows the outcome of something that finished in the background.
+    fn notice(&self, message: &str) {
+        self.banner_box.add_css_class("notice");
+        self.show_banner(message);
+    }
+
+    fn show_banner(&self, message: &str) {
         // The service words its messages for a terminal, without a capital.
         let mut chars = message.chars();
         let message: String = chars
@@ -973,10 +1117,13 @@ impl Ui {
 
         let tracks = Tracks::from_source(recording.source.as_deref());
         self.wave.show(tracks, Vec::new(), Vec::new());
-        self.wave_tracks.set_visible(tracks == Tracks::Both);
-        if let Err(message) = self.player.load(Path::new(&recording.path)) {
+        let two_tracks = tracks == Tracks::Both;
+        self.track_toggles.set_visible(two_tracks);
+        self.two_track_items.set_visible(two_tracks);
+        if let Err(message) = self.player.load(Path::new(&recording.path), two_tracks) {
             self.error(&message);
         }
+        self.show_heard(Heard::Both);
 
         let path = recording.path;
         self.request(
@@ -1133,6 +1280,112 @@ impl Ui {
         });
     }
 
+    /// Chooses which tracks of a two-track recording are heard.
+    fn hear(&self, heard: Heard) {
+        match self.player.set_tracks(heard) {
+            Ok(()) => self.show_heard(heard),
+            Err(message) => self.error(&message),
+        }
+    }
+
+    fn show_heard(&self, heard: Heard) {
+        self.wave.set_heard(heard);
+        for (option, check) in &self.heard_checks {
+            check.set_text(if *option == heard { "✓" } else { "" });
+        }
+        for (track, toggle) in [
+            (Heard::Microphone, &self.mic_toggle),
+            (Heard::System, &self.system_toggle),
+        ] {
+            if heard == Heard::Both || heard == track {
+                toggle.remove_css_class("muted");
+            } else {
+                toggle.add_css_class("muted");
+            }
+        }
+    }
+
+    /// Asks where to save one track of the open recording, then saves it in
+    /// the format the chosen file name ends with.
+    fn save_track(self: &Rc<Self>, track: Heard) {
+        let Some(recording) = self.selected_recording() else {
+            return;
+        };
+        let source = PathBuf::from(&recording.path);
+        let extension = source
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "opus".to_owned());
+        let which = if track == Heard::Microphone {
+            "mic"
+        } else {
+            "system"
+        };
+        let mut dialog = gtk::FileDialog::builder()
+            .title(format!("Save the {which} track"))
+            .accept_label("Save")
+            .initial_name(format!("{} ({which}).{extension}", recording.name));
+        if let Some(folder) = source.parent() {
+            dialog = dialog.initial_folder(&gio::File::for_path(folder));
+        }
+        let dialog = dialog.build();
+        let window = self.wave.widget().root().and_downcast::<gtk::Window>();
+
+        let ui = self.clone();
+        glib::spawn_future_local(async move {
+            let chosen = match dialog.save_future(window.as_ref()).await {
+                Ok(file) => file.path(),
+                Err(e) if e.matches(gtk::DialogError::Dismissed) => return,
+                Err(e) => {
+                    ui.error(&format!("Could not choose where to save: {e}"));
+                    return;
+                }
+            };
+            let Some(mut destination) = chosen else {
+                ui.error("That location is not on this computer's disks");
+                return;
+            };
+            // The file name's extension picks the format; without a known
+            // one, the recording's own format is used.
+            let format = match destination
+                .extension()
+                .and_then(|e| e.to_str())
+                .and_then(|e| e.to_ascii_lowercase().parse::<Format>().ok())
+            {
+                Some(format) => format,
+                None => {
+                    let format = extension.parse::<Format>().unwrap_or(Format::Opus);
+                    let mut name = destination.file_name().unwrap_or_default().to_owned();
+                    name.push(format!(".{}", format.extension()));
+                    destination.set_file_name(name);
+                    format
+                }
+            };
+
+            let saved = destination.clone();
+            let result = gio::spawn_blocking(move || {
+                earshot_core::tracks::export(&source, track, &destination, format)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {
+                    let name = saved.file_name().unwrap_or_default().to_string_lossy();
+                    ui.notice(&format!("Saved {name}"));
+                    // It may have been saved into the recordings folder.
+                    ui.reload();
+                }
+                Ok(Err(e)) => ui.error(&format!("Could not save the {which} track: {e}")),
+                Err(_) => ui.error(&format!("Could not save the {which} track")),
+            }
+        });
+    }
+
+    fn selected_recording(&self) -> Option<RecordingInfo> {
+        let model = self.model.borrow();
+        let path = model.selected.as_ref()?;
+        model.recordings.iter().find(|r| &r.path == path).cloned()
+    }
+
     fn delete(self: &Rc<Self>, path: String) {
         if self.model.borrow().selected.as_ref() == Some(&path) {
             self.close_recording();
@@ -1144,6 +1397,27 @@ impl Ui {
             |_, _| {},
         );
     }
+}
+
+/// A menu item with a check mark column in front of its text.
+fn check_item(text: &str) -> (gtk::Button, gtk::Label) {
+    let check = gtk::Label::builder().width_chars(2).xalign(0.0).build();
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    content.append(&check);
+    content.append(&label(text, &[]));
+    let button = gtk::Button::builder().child(&content).build();
+    button.add_css_class("menu-item");
+    (button, check)
+}
+
+/// A track name beside the waveform that can be clicked to hear only it.
+fn track_toggle(text: &str, tooltip: &str) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .child(&label(text, &[]))
+        .tooltip_text(tooltip)
+        .build();
+    button.add_css_class("track-toggle");
+    button
 }
 
 fn menu_item(text: &str) -> gtk::Button {
@@ -1174,7 +1448,7 @@ fn track_labels() -> gtk::Box {
 
 /// A waveform with its track names beside it. Rows attached below it, in
 /// column 0, line up with the waveform and not with the names.
-fn wave_area(wave: &Waveform, tracks: &gtk::Box, height: i32) -> gtk::Grid {
+fn wave_area(wave: &Waveform, tracks: &impl IsA<gtk::Widget>, height: i32) -> gtk::Grid {
     let area = gtk::Grid::builder().column_spacing(10).build();
     area.add_css_class("wave");
     wave.widget().set_height_request(height);

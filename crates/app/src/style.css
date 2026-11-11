@@ -206,3 +206,27 @@ popover listview > row {
 }
 popover listview > row:hover,
 popover listview > row:selected { background-color: alpha(@text, 0.08); }
+
+/* Track names beside a two-track waveform, clickable to hear one track. */
+button.track-toggle {
+  border-color: transparent;
+  background: none;
+  padding: 0 4px;
+  min-height: 24px;
+  font-size: 12px;
+  font-weight: normal;
+  color: @dim;
+}
+button.track-toggle.system { color: @system; }
+button.track-toggle:hover { background-color: alpha(@text, 0.06); }
+button.track-toggle.muted { opacity: 0.35; }
+
+popover.row-menu separator {
+  margin: 4px 6px;
+  background-color: @line;
+}
+
+.banner.notice {
+  background-color: alpha(@text, 0.06);
+  border-bottom-color: @line;
+}

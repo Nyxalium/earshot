@@ -4,10 +4,12 @@
 pub mod config;
 pub mod library;
 pub mod recorder;
+pub mod tracks;
 
 pub use config::Config;
 pub use library::{Library, Meta, Recording};
 pub use recorder::{Event, Format, Recorder, Source, StartOptions, State, Status};
+pub use tracks::Tracks;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

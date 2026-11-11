@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use earshot_core::Tracks as Heard;
 use gtk::cairo;
 use gtk::prelude::*;
 
@@ -34,6 +35,8 @@ const SYSTEM: Rgb = (0.557, 0.639, 1.0);
 const PLAYHEAD: Rgb = (0.898, 0.282, 0.302);
 /// Opacity of the part of a recording that has not been played yet.
 const UNPLAYED: f64 = 0.4;
+/// Opacity of a track that is not being heard, relative to the others.
+const MUTED: f64 = 0.25;
 
 /// Distance between bars, and their thickness.
 const PITCH: f64 = 4.0;
@@ -54,6 +57,9 @@ struct State {
     pending: usize,
     /// Fraction of the recording that has been played.
     progress: f64,
+    /// For a two-track recording, which tracks are being heard. The other
+    /// one is drawn faintly.
+    heard: Heard,
 }
 
 #[derive(Clone)]
@@ -124,6 +130,28 @@ impl Waveform {
         self.area.queue_draw();
     }
 
+    pub fn set_heard(&self, heard: Heard) {
+        self.state.borrow_mut().heard = heard;
+        self.area.queue_draw();
+    }
+
+    /// Calls `menu` with the fraction from 0 to 1 and the point that was
+    /// right-clicked on a saved recording's waveform.
+    pub fn connect_context_menu(&self, menu: impl Fn(f64, f64, f64) + 'static) {
+        let click = gtk::GestureClick::builder().button(3).build();
+        click.connect_pressed({
+            let (area, state) = (self.area.clone(), self.state.clone());
+            move |gesture, _, x, y| {
+                let width = f64::from(area.width());
+                if !state.borrow().live && width > 0.0 {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    menu((x / width).clamp(0.0, 1.0), x, y);
+                }
+            }
+        });
+        self.area.add_controller(click);
+    }
+
     pub fn set_progress(&self, progress: f64) {
         self.state.borrow_mut().progress = progress.clamp(0.0, 1.0);
         self.area.queue_draw();
@@ -189,15 +217,22 @@ fn draw(state: &State, cr: &cairo::Context, width: f64, height: f64) -> Result<(
         // far a full-scale bar reaches above and below that.
         let gap = 2.5;
         let reach = mid - gap - BAR;
-        let tracks: &[(Rgb, &[f32], f64, f64, f64)] = match state.tracks {
-            Tracks::Both => &[
-                (MICROPHONE, &state.microphone, -gap, -reach, 0.0),
-                (SYSTEM, &state.system, gap, 0.0, reach),
-            ],
-            Tracks::Microphone => &[(MICROPHONE, &state.microphone, 0.0, -reach, reach)],
-            Tracks::System => &[(SYSTEM, &state.system, 0.0, -reach, reach)],
+        // Whether each track of a two-track recording is being heard.
+        let (mic_heard, system_heard) = match state.heard {
+            Heard::Both => (true, true),
+            Heard::Microphone => (true, false),
+            Heard::System => (false, true),
         };
-        for &((r, g, b), values, offset, up, down) in tracks {
+        let tracks: &[(Rgb, &[f32], bool, f64, f64, f64)] = match state.tracks {
+            Tracks::Both => &[
+                (MICROPHONE, &state.microphone, mic_heard, -gap, -reach, 0.0),
+                (SYSTEM, &state.system, system_heard, gap, 0.0, reach),
+            ],
+            Tracks::Microphone => &[(MICROPHONE, &state.microphone, true, 0.0, -reach, reach)],
+            Tracks::System => &[(SYSTEM, &state.system, true, 0.0, -reach, reach)],
+        };
+        for &((r, g, b), values, heard, offset, up, down) in tracks {
+            let alpha = if heard { alpha } else { alpha * MUTED };
             cr.set_source_rgba(r, g, b, alpha);
             for bar in range.clone() {
                 let Some(v) = value(values, bar) else {

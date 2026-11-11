@@ -84,7 +84,7 @@ impl Format {
         self.as_str()
     }
 
-    fn encoder(self) -> &'static str {
+    pub(crate) fn encoder(self) -> &'static str {
         match self {
             Format::Opus => "opusenc ! oggmux",
             Format::Flac => "flacenc",
