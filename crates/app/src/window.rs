@@ -1238,7 +1238,14 @@ impl Ui {
                 self.set_playing(false);
                 self.seek_to(0);
             }
-            PlayerEvent::Failed(message) => self.error(&format!("Playback failed: {message}")),
+            PlayerEvent::Failed(message) => {
+                // Playback has stopped, so the controls stop showing it.
+                if let Some(tick) = self.progress_tick.take() {
+                    tick.remove();
+                }
+                self.play_icon.set(Icon::Play);
+                self.error(&format!("Playback failed: {message}"));
+            }
         }
     }
 

@@ -21,7 +21,7 @@ pub enum PlayerEvent {
 pub struct Player {
     playbin: gst::Element,
     rate: Rc<Cell<f64>>,
-    playing: Cell<bool>,
+    playing: Rc<Cell<bool>>,
     /// Which tracks are heard, for a two-track recording; `None` otherwise.
     tracks: Cell<Option<Tracks>>,
     /// Where to go back to, and whether to play, once the player has
@@ -74,10 +74,12 @@ impl Player {
         playbin.set_property_from_str("flags", "audio");
 
         let rate = Rc::new(Cell::new(1.0));
+        let playing = Rc::new(Cell::new(false));
         let restore = Rc::new(Restore::default());
         let bus = playbin.bus().expect("playbin has a bus");
         let watch = bus.add_watch_local({
             let (playbin, rate, restore) = (playbin.clone(), rate.clone(), restore.clone());
+            let playing = playing.clone();
             move |_, message| {
                 match message.view() {
                     gst::MessageView::AsyncDone(_) => {
@@ -93,6 +95,8 @@ impl Player {
                     }
                     gst::MessageView::Eos(_) => on_event(PlayerEvent::Ended),
                     gst::MessageView::Error(error) => {
+                        // An error ends playback.
+                        playing.set(false);
                         on_event(PlayerEvent::Failed(error.error().message().to_owned()));
                     }
                     _ => {}
@@ -104,7 +108,7 @@ impl Player {
         Ok(Self {
             playbin,
             rate,
-            playing: Cell::new(false),
+            playing,
             tracks: Cell::new(None),
             restore,
             _watch: watch,
