@@ -8,7 +8,9 @@
   the `earshot` terminal command and the MCP server control it over D-Bus, so
   they all see the same recording, and recording continues when the window is
   closed.
-- **Sources:** microphone, system audio, or both mixed.
+- **Sources:** microphone, system audio, or both. When both are recorded they
+  are kept as two tracks in one file, not mixed, so later steps can tell the
+  user's voice from everyone else's.
 - **Storage:** ordinary audio files in `~/Music/Earshot` (changeable). Extra
   data per recording, such as its waveform and later its transcript, is kept in
   a hidden `.earshot` subfolder, so the files stay usable without Earshot.
@@ -26,6 +28,7 @@
 ## Version 0.1: the recorder
 
 - [x] Recording engine: microphone, system audio, both; Opus, FLAC, WAV
+- [ ] Record both sources as two tracks instead of mixing them
 - [x] Recordings folder: list, rename, delete to trash, waveform data
 - [x] Background service with a D-Bus interface
 - [x] `earshot` terminal command, with `--json`
@@ -54,10 +57,3 @@
 - [ ] Speaker labels
 - [ ] Audio clean-up: noise reduction, silence trimming, loudness
 - [ ] Export: other audio formats; transcripts as text, Markdown, subtitles
-
-## Open questions
-
-- When recording both sources, keep the microphone and system audio as
-  separate tracks instead of mixing them? That would make speaker labels much
-  easier (microphone is you, system audio is everyone else), at the cost of
-  files some players handle less well.
