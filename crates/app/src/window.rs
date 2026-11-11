@@ -147,6 +147,8 @@ struct Ui {
     live_tracks: gtk::Box,
     pause_icon: IconView,
     pause_label: gtk::Label,
+    /// Asks before a recording is discarded, which cannot be undone.
+    discard_menu: gtk::Popover,
 
     // The selected recording
     title: gtk::Label,
@@ -303,6 +305,25 @@ impl Ui {
         stop.add_css_class("record");
         let discard = gtk::Button::with_label("Discard");
         discard.add_css_class("flat");
+        // A discarded recording is deleted, not moved to the trash, so the
+        // button only opens this.
+        let discard_note = label("This cannot be undone.", &["small", "dim"]);
+        discard_note.set_margin_top(6);
+        discard_note.set_margin_bottom(4);
+        discard_note.set_margin_start(10);
+        discard_note.set_margin_end(10);
+        let discard_confirm = menu_item("Discard recording");
+        discard_confirm.add_css_class("destructive");
+        let discard_items = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        discard_items.append(&discard_note);
+        discard_items.append(&discard_confirm);
+        let discard_menu = gtk::Popover::builder()
+            .child(&discard_items)
+            .has_arrow(false)
+            .position(gtk::PositionType::Top)
+            .build();
+        discard_menu.add_css_class("row-menu");
+        discard_menu.set_parent(&discard);
         let live_controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         live_controls.append(&pause);
         live_controls.append(&stop);
@@ -458,6 +479,7 @@ impl Ui {
             live_tracks,
             pause_icon,
             pause_label,
+            discard_menu,
             title,
             meta,
             wave,
@@ -507,7 +529,15 @@ impl Ui {
         discard.connect_clicked(glib::clone!(
             #[weak]
             ui,
-            move |_| ui.request(|service| async move { service.cancel().await }, |_, _| {})
+            move |_| ui.discard_menu.popup()
+        ));
+        discard_confirm.connect_clicked(glib::clone!(
+            #[weak]
+            ui,
+            move |_| {
+                ui.discard_menu.popdown();
+                ui.request(|service| async move { service.cancel().await }, |_, _| {});
+            }
         ));
         dismiss.connect_clicked(glib::clone!(
             #[weak]
@@ -888,6 +918,8 @@ impl Ui {
     fn apply_status(self: &Rc<Self>, status: Status) {
         let before = std::mem::replace(&mut self.model.borrow_mut().state, status.state.clone());
         if status.state == "idle" {
+            // The recording it asked about has ended.
+            self.discard_menu.popdown();
             self.top.set_visible_child_name("idle");
             if self.showing("live") {
                 self.pages.set_visible_child_name("empty");
