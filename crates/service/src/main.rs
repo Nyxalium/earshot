@@ -271,8 +271,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = events_tx.send(event);
     })?);
 
+    // zbus would otherwise take the name over from a service that is already
+    // running, leaving that one recording with nobody able to reach it.
     let connection = zbus::connection::Builder::session()
         .name(BUS_NAME)
+        .allow_name_replacements(false)
+        .replace_existing_names(false)
         .serve_at(
             OBJECT_PATH,
             Service {
@@ -281,7 +285,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .build()
         .await
-        .map_err(|e| format!("could not claim {BUS_NAME} on the session bus: {e}"))?;
+        .map_err(|e| match e {
+            zbus::Error::NameTaken => format!("another Earshot service already owns {BUS_NAME}"),
+            e => format!("could not claim {BUS_NAME} on the session bus: {e}"),
+        })?;
 
     let emitter = connection
         .object_server()
