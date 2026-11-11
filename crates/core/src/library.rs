@@ -148,11 +148,21 @@ impl Library {
         fs::rename(&from, &to)
             .map_err(Error::io(format!("could not rename {}", from.display())))?;
         let (meta_from, meta_to) = (self.meta_path(&from)?, self.meta_path(&to)?);
-        if meta_from.exists() {
-            fs::rename(&meta_from, &meta_to).map_err(Error::io(format!(
-                "could not rename {}",
-                meta_from.display()
-            )))?;
+        if meta_from.exists()
+            && let Err(e) = fs::rename(&meta_from, &meta_to)
+        {
+            // Give the recording its old name back, so a rename that is
+            // reported as failed has not half happened.
+            let context = match fs::rename(&to, &from) {
+                Ok(()) => format!("could not rename {}", meta_from.display()),
+                Err(undo) => format!(
+                    "{} was renamed to {}, but its metadata {} could not follow and the rename could not be undone ({undo})",
+                    from.display(),
+                    to.display(),
+                    meta_from.display()
+                ),
+            };
+            return Err(Error::io(context)(e));
         }
         Ok(to)
     }
@@ -327,6 +337,26 @@ mod tests {
         assert!(!original.exists());
         assert_eq!(library.meta(&renamed).unwrap(), Some(meta(100)));
         assert_eq!(library.meta(&original).unwrap(), None);
+    }
+
+    #[test]
+    fn rename_is_undone_if_the_metadata_cannot_follow() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, library) = library_with(&["a.opus"]);
+        let original = dir.path().join("a.opus");
+        library.write_meta(&original, &meta(100)).unwrap();
+        let meta_dir = dir.path().join(META_DIR);
+        fs::set_permissions(&meta_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let renamed = library.rename(&original, "b");
+
+        // Writable again, so the temporary folder can be removed.
+        fs::set_permissions(&meta_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(renamed.is_err());
+        assert!(original.exists());
+        assert!(!dir.path().join("b.opus").exists());
+        assert_eq!(library.meta(&original).unwrap(), Some(meta(100)));
     }
 
     #[test]
